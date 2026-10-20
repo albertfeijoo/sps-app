@@ -177,3 +177,22 @@ textarea.lyrics{min-height:240px;line-height:1.6}
 .notice{border:1px dashed var(--accent-line);border-radius:12px;padding:10px 12px;font-size:.88rem;color:var(--muted)}
 .err{color:#FF8A8A;font-size:.9rem}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* Ficha de músico */
+.av{background-size:cover;background-position:center}
+.prof{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding-block:8px 4px}
+.prof-photo{width:148px;height:148px;border-radius:50%;background-size:cover;background-position:center;display:grid;place-items:center;position:relative;
+  box-shadow:0 0 0 3px var(--bg),0 0 0 5px var(--accent-line);font-family:var(--f-display);font-weight:700;font-size:3rem;color:#0b0d0d}
+.prof-edit{position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:.75rem;font-weight:600;background:var(--surface2);border:1px solid var(--line);color:var(--ink);border-radius:99px;padding:5px 10px;cursor:pointer}
+.prof-name{font-family:var(--f-display);font-weight:700;font-size:2.3rem;text-transform:uppercase;line-height:1;margin-top:8px}
+.quote{margin:0;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 40px 12px 44px}
+.quote::before{content:'“';position:absolute;left:12px;top:2px;font-family:var(--f-display);font-size:3rem;line-height:1;color:var(--accent)}
+.quote blockquote{margin:0;font-family:var(--f-display);font-size:1.35rem;line-height:1.2;font-weight:600}
+.quote figcaption{margin-top:6px;font-size:.84rem;color:var(--muted)}
+.quote .x{position:absolute;top:6px;right:4px}
+details summary{font-weight:600}
+
+.prof-top{display:flex;align-items:center;justify-content:center;gap:18px}
+.prof-inst{display:flex;flex-direction:column;gap:10px;width:58px;align-items:center}
+.inst-ic{width:58px;height:58px;color:var(--accent);display:block}
+.inst-ic svg{width:100%;height:100%;display:block}

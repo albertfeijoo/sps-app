@@ -290,10 +290,11 @@ function memberOfUser(uid) {
   const a = S.accounts.find(x => x.user_id === uid);
   return a ? S.items.get(a.member_id) || null : null;
 }
+const mName = m => (m ? (m.data.alias || m.data.name || 'Sin nombre') : '');
 function whoName(uid) {
-  if (!uid) return 'Alguien';
+  if (!uid) return 'Carga inicial';
   const m = memberOfUser(uid);
-  if (m) return m.data.name || 'Sin nombre';
+  if (m) return mName(m);
   const a = S.accounts.find(x => x.user_id === uid);
   return (a && a.display_name) || 'Antiguo miembro';
 }

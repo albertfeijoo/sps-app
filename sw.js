@@ -1,5 +1,5 @@
 // Service worker: la app abre sin conexión. Los datos del grupo NO pasan por aquí.
-const CACHE = 'sps-v1';
+const CACHE = 'sps-v3';
 const SHELL = ['./', 'index.html', 'app.css', 'core.js', 'app.js', 'config.js', 'manifest.json',
   'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'brand/logo.jpg', 'brand/pill.jpg'];
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];

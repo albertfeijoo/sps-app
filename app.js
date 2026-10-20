@@ -16,6 +16,16 @@ const INST = [
   { k: 'voice', name: 'Voz', short: 'Voz', role: 'Voz', fields: [['lyrics', 'Letra (por partes)', 'lyrics'], ['backing', 'Coros', 'text'], ['harmonies', 'Armonías (quién las hace)', 'text'], ['key', 'Tonalidad cómoda', 'line'], ['notes', 'Notas de interpretación', 'text']] },
   { k: 'guest', name: 'Invitado', short: 'Invitado', role: null, optional: true, guest: true, fields: [['instrument', 'Instrumento', 'line'], ['parts', 'Partes', 'text'], ['sheet', 'Partitura o tablatura', 'tab'], ['notes', 'Notas', 'text']] }
 ];
+const SVG_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">';
+const INST_ICON = {
+  mic: SVG_OPEN + '<rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M9 6.5h2.2M9 9.5h2.2"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21M8.5 21h7"/></svg>',
+  guitar: SVG_OPEN + '<g transform="rotate(40 12 12) translate(12 12) scale(.92) translate(-12 -12.6)"><path d="M9.33 14.76A3.2 3.2 0 1 1 14.67 14.76A4.2 4.2 0 1 1 9.33 14.76Z"/><circle cx="12" cy="15.4" r="1.15"/><path d="M10.6 19.3h2.8"/><path d="M12 9.8V3.6"/><rect x="10.9" y="0.6" width="2.2" height="3" rx=".6"/></g></svg>',
+  bass: SVG_OPEN + '<g transform="rotate(40 12 12) translate(12 12) scale(.9) translate(-12 -12.4)"><path d="M11 13.2 9.4 10c-.3-.7.6-1.1 1-.5l1.2 1.6h1.6l.8-1.1c.4-.5 1.2-.2 1 .4l-.9 2.6c1.6 1 2.3 2.8 2 4.6-.4 2.6-2.3 4.4-4.4 4.4-2.4 0-4.4-2-4.4-4.6 0-1.7.9-3.2 2.4-4.1z"/><path d="M12 11V1.2"/><path d="M12 2.2h-1.3M12 3.8h-1.3M12 2.2h1.3M12 3.8h1.3"/><path d="M10.5 15.4h3M10.8 17.6h2.4"/></g></svg>',
+  drums: SVG_OPEN + '<ellipse cx="12" cy="13" rx="8" ry="3"/><path d="M4 13v5c0 1.7 3.6 3 8 3s8-1.3 8-3v-5"/><path d="M8 15.8v4.6M16 15.8v4.6M12 16v5"/><path d="M5 3.5l7 6.5M19 3.5l-7 6.5"/></svg>'
+};
+const ROLE_ICON = { 'Voz': 'mic', 'Coros': 'mic', 'Guitarra 1': 'guitar', 'Guitarra 2': 'guitar', 'Bajo': 'bass', 'Batería': 'drums' };
+const ICON_LABEL = { mic: 'Voz', guitar: 'Guitarra', bass: 'Bajo', drums: 'Batería' };
+const roleIcons = m => [...new Set((m.data.roles || []).map(r => ROLE_ICON[r]).filter(Boolean))];
 const TYPE_LABEL = { song: 'Tema', recording: 'Grabación', rehearsal: 'Ensayo', gig: 'Concierto', setlist: 'Setlist', task: 'Deber', member: 'Miembro', settings: 'Ajustes' };
 const ACTION_LABEL = { create: 'creó', edit: 'editó', delete: 'mandó a la papelera', restore: 'restauró', purge: 'borró para siempre' };
 
@@ -25,7 +35,7 @@ let authMode = null;
 
 /* ---------- ayudas de datos ---------- */
 const members = (withFormer = false) => all('member').filter(m => withFormer || !m.data.former)
-  .sort((a, b) => (a.data.guest ? 1 : 0) - (b.data.guest ? 1 : 0) || (a.data.name || '').localeCompare(b.data.name || ''));
+  .sort((a, b) => (a.data.guest ? 1 : 0) - (b.data.guest ? 1 : 0) || mName(a).localeCompare(mName(b)));
 const songsSorted = () => all('song').sort((a, b) => (a.data.title || '').localeCompare(b.data.title || '', 'es'));
 const tagsAll = () => { const s = settings(); const base = (s && s.data.tags && s.data.tags.length) ? s.data.tags : DEFAULT_TAGS; const used = new Set(base); all('recording').forEach(r => (r.data.tags || []).forEach(t => used.add(t))); return [...used]; };
 const gearAll = () => { const s = settings(); return (s && s.data.gear && s.data.gear.length) ? s.data.gear : DEFAULT_GEAR; };
@@ -43,10 +53,12 @@ function itemTitle(it) {
   if (it.type === 'gig') return (d.venue || 'Concierto') + (d.date ? ' · ' + fmtDay(d.date, { day: 'numeric', month: 'short' }) : '');
   if (it.type === 'task') return d.text || 'Deber';
   if (it.type === 'settings') return 'Ajustes del grupo';
-  return d.title || d.name || 'Sin título';
+  return d.title || d.alias || d.name || 'Sin título';
 }
 const initials = n => (n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
-const avatar = m => `<span class="av" style="background:${esc((m && m.data.color) || '#888')}">${esc(initials(m && m.data.name))}</span>`;
+const avatar = m => (m && m.data.photo && m.data.photo.key)
+  ? `<span class="av" style="background-color:${esc(m.data.color || '#888')}" data-bg="${m.data.photo.key}|${esc(m.data.photo.path)}"></span>`
+  : `<span class="av" style="background-color:${esc((m && m.data.color) || '#888')}">${esc(initials(mName(m)))}</span>`;
 const durOf = song => parseDur(song && song.data.duration);
 
 /* ---------- capa de hojas, avisos y confirmaciones ---------- */
@@ -113,7 +125,7 @@ window.addEventListener('popstate', e => {
   flushFields(); Metro.stop();
   V = e.state || { name: 'home', depth: 0 }; lastKey = null; render();
 });
-const parentOf = v => ({ song: 'songs', rehearsal: 'rehearsals', gig: 'live', setlist: 'live', trash: 'band', activity: 'band' }[v.name] || 'home');
+const parentOf = v => ({ song: 'songs', rehearsal: 'rehearsals', gig: 'live', setlist: 'live', trash: 'band', activity: 'band', member: 'band' }[v.name] || 'home');
 
 /* ---------- edición de campos (se guarda sola) ---------- */
 const pendingFields = new Map();
@@ -238,12 +250,13 @@ VIEWS.home = () => {
   const tasks = all('task').filter(t => !t.data.done).sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
   const recs = recsOf(() => true).slice(0, 5);
   const ready = songsSorted().filter(s => s.data.status === 'Lista para directo').map(s => ({ s, st: songStats(s.id) }))
+    .filter(x => !x.st.last || (Date.now() - parseDay(x.st.last)) / 864e5 > 21)
     .sort((a, b) => (a.st.last || '').localeCompare(b.st.last || '')).slice(0, 3);
   const nSongs = all('song').length;
   const me = get(S.me.member_id);
   let h = `<header class="top"><img class="pillbrand" src="brand/pill.jpg" alt="San Peregrino Squirt"><span class="grow"></span>${syncBadge()}</header>`;
   if (!REMOTE) h += `<div class="notice">Modo prueba: los datos se guardan solo en este móvil. Cuando conectes Supabase, todo se compartirá con el grupo.</div>`;
-  h += `<p class="muted" style="margin-top:6px">Hola${me ? ', ' + esc(me.data.name) : ''}. ${nSongs ? nSongs + (nSongs === 1 ? ' tema' : ' temas') + ' en el repertorio.' : 'Empieza creando el primer tema.'}</p>`;
+  h += `<p class="muted" style="margin-top:6px">Hola${me ? ', ' + esc(mName(me)) : ''}. ${nSongs ? nSongs + (nSongs === 1 ? ' tema' : ' temas') + ' en el repertorio.' : 'Empieza creando el primer tema.'}</p>`;
   if (open) {
     const cur = get(open.data.current_song);
     h += `<button class="card hl stack" data-a="open" data-v="rehearsal" data-id="${open.id}" style="text-align:left;margin-top:14px">
@@ -309,11 +322,12 @@ VIEWS.song = v => {
   const s = get(v.id);
   if (!s) return topBar('Tema no encontrado') + `<div class="card empty">Puede que alguien lo haya borrado.</div>`;
   const tab = v.tab || 'general';
-  const tabs = [['general', 'General'], ...INST.filter(d => instOn(s, d)).map(d => [d.k, d.short]), ['recs', 'Grabaciones']];
+  const tabs = [['general', 'General'], ...INST.filter(d => instOn(s, d)).map(d => [d.k, d.short]), ['log', 'Bitácora'], ['recs', 'Grabaciones']];
   let h = topBar(s.data.title || 'Sin título');
   h += `<div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button data-a="songTab" data-v="${k}" aria-current="${k === tab}">${esc(l)}${k === 'recs' ? ' · ' + all('recording').filter(r => r.data.song_id === s.id).length : ''}</button>`).join('')}</div>`;
   if (tab === 'general') h += songGeneral(s);
   else if (tab === 'recs') h += songRecs(s, v);
+  else if (tab === 'log') h += songLog(s);
   else { const def = INST.find(d => d.k === tab); h += def ? instPane(s, def) : ''; }
   return h;
 };
@@ -353,8 +367,8 @@ function instPane(s, def) {
   const sugg = def.role ? ms.filter(m => (m.data.roles || []).includes(def.role)) : ms.filter(m => m.data.guest);
   const sel = d.member || (sugg[0] && sugg[0].id) || '';
   let h = `<div class="stack"><label class="field"><span>${def.guest ? 'Músico invitado' : 'Quién lo toca'}</span><select data-f="${id}|${base}.member" data-r>
-    <option value="">— Sin asignar —</option>${ms.filter(m => def.guest ? m.data.guest : true).map(m => `<option value="${m.id}" ${m.id === d.member ? 'selected' : ''}>${esc(m.data.name)}${m.data.guest ? ' (invitado)' : ''}</option>`).join('')}</select></label>
-    ${!d.member && sel ? `<p class="small muted">Sugerencia: ${esc(get(sel).data.name)}</p>` : ''}
+    <option value="">— Sin asignar —</option>${ms.filter(m => def.guest ? m.data.guest : true).map(m => `<option value="${m.id}" ${m.id === d.member ? 'selected' : ''}>${esc(mName(m))}${m.data.guest ? ' (invitado)' : ''}</option>`).join('')}</select></label>
+    ${!d.member && sel ? `<p class="small muted">Sugerencia: ${esc(mName(get(sel)))}</p>` : ''}
     ${def.guest && !ms.some(m => m.data.guest) ? `<p class="small muted">No hay invitados creados. ${isAdmin() ? 'Añádelos en Grupo.' : 'Pídeselo al administrador.'}</p>` : ''}`;
   for (const [f, label, kind, opts] of def.fields) {
     const val = d[f];
@@ -363,13 +377,23 @@ function instPane(s, def) {
     else h += `<label class="field"><span>${esc(label)}</span><textarea class="${kind === 'tab' ? 'tab' : kind === 'lyrics' ? 'lyrics' : ''}" data-f="${id}|${base}.${f}" spellcheck="${kind === 'tab' ? 'false' : 'true'}" ${kind === 'tab' ? 'wrap="off"' : ''}>${esc(val)}</textarea></label>`;
   }
   const imgs = d.img || [];
-  h += `<div class="sec"><div class="label">Imágenes</div><div class="thumbs">${imgs.map(im => `<button class="thumb" data-a="viewImg" data-key="${im.key}" data-path="${esc(im.path)}" data-bg="${im.key}|${esc(im.path)}" aria-label="Ver imagen"></button>`).join('')}
-    <label class="thumb" style="display:grid;place-items:center;cursor:pointer;font-size:1.6rem;color:var(--muted)" aria-label="Añadir imagen">+<input type="file" accept="image/*" data-img="${id}|${def.k}" hidden></label></div>
+  h += `<div class="sec"><div class="label">Imágenes</div><div class="thumbs">${imgs.map(im => `<button class="thumb" data-a="viewImg" data-key="${im.key}" data-path="${esc(im.path)}" data-list="${id}|inst.${def.k}.img" data-candel="1" data-bg="${im.key}|${esc(im.path)}" aria-label="Ver imagen"></button>`).join('')}
+    <label class="thumb" style="display:grid;place-items:center;cursor:pointer;font-size:1.6rem;color:var(--muted)" aria-label="Añadir imagen">+<input type="file" accept="image/*" data-img="${id}|inst.${def.k}.img|many" hidden></label></div>
     <p class="small muted">Fotos de partituras, de la pizarra o de una libreta.</p></div>`;
   const linked = (d.recs || []).map(get).filter(Boolean);
   h += `<div class="sec"><div class="row between"><div class="label">Grabaciones enlazadas</div><button class="btn sm" data-a="linkRec" data-v="${def.k}">Enlazar</button></div>
     ${linked.length ? `<div class="list">${linked.map(r => recRow(r)).join('')}</div>` : `<p class="small muted">Enlaza aquí la toma del solo, del riff… para tenerla a mano.</p>`}</div></div>`;
   return h;
+}
+function songLog(s) {
+  const rs = all('rehearsal').filter(r => (r.data.songs || []).includes(s.id)).sort((a, b) => (b.data.date || '').localeCompare(a.data.date || ''));
+  if (!rs.length) return `<div class="card empty">Este tema todavía no aparece en ningún ensayo.</div>`;
+  return `<p class="small muted" style="margin-bottom:10px">Lo apuntado sobre este tema en cada ensayo, del más reciente al más antiguo.</p><div class="list">${rs.map(r => {
+    const note = (r.data.song_notes || {})[s.id]; const n = recsOf(x => x.data.song_id === s.id && x.data.rehearsal_id === r.id).length;
+    return `<button class="li" data-a="open" data-v="rehearsal" data-id="${r.id}" style="align-items:flex-start"><span class="grow"><span class="t">${esc(fmtDay(r.data.date, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }))}</span>
+      <span class="s"> · ${esc((r.data.attendees || []).map(get).filter(Boolean).map(mName).join(', '))}${n ? ' · ' + n + ' grab.' : ''}</span><br>
+      <span style="white-space:pre-wrap">${note ? esc(note) : '<span class="muted small">Sin notas</span>'}</span></span><span class="chev">›</span></button>`;
+  }).join('')}</div>`;
 }
 function songRecs(s, v) {
   const recs = recsOf(r => r.data.song_id === s.id);
@@ -388,7 +412,7 @@ VIEWS.rehearsals = () => {
   let h = topBar('Ensayos', false) + `<div class="stack"><button class="btn pri block" data-a="newRehearsal">+ Nuevo ensayo</button>`;
   h += list.length ? `<div class="list">${list.map(r => `<button class="li" data-a="open" data-v="rehearsal" data-id="${r.id}">
     <span class="grow"><span class="t">${esc(fmtDay(r.data.date, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }))}${r.data.time ? ' · ' + esc(r.data.time) : ''}</span><br>
-    <span class="s">${(r.data.songs || []).length} temas · ${(r.data.attendees || []).length} asistentes${r.data.place ? ' · ' + esc(r.data.place) : ''}</span></span>
+    <span class="s">${(r.data.songs || []).length} temas · ${esc((r.data.attendees || []).map(get).filter(Boolean).map(mName).join(', ') || 'sin asistentes')}${r.data.place ? ' · ' + esc(r.data.place) : ''}</span></span>
     ${r.data.open ? '<span class="tag rec">En curso</span>' : ''}<span class="chev">›</span></button>`).join('')}</div>` : `<div class="card empty">Aún no hay ensayos apuntados.</div>`;
   return h + `</div>`;
 };
@@ -405,19 +429,20 @@ VIEWS.rehearsal = v => {
       <div class="chips">${songs.map(s => `<button class="chip" data-a="curSong" data-id="${s.id}" aria-pressed="${s.id === d.current_song}">${esc(s.data.title)}</button>`).join('')}</div>
       <select data-ch="rehAddCur" aria-label="Añadir tema"><option value="">+ Añadir tema y ponerlo como actual…</option>${songsSorted().filter(s => !(d.songs || []).includes(s.id)).map(s => `<option value="${s.id}">${esc(s.data.title)}</option>`).join('')}</select>
       <button class="btn recb block" data-a="recReh">● Grabar${cur ? ' «' + esc(cur.data.title) + '»' : ''}</button></div>`;
-  } else {
+  } else if (d.date === isoDay()) {
     h += `<button class="btn pri block" data-a="openReh" data-id="${id}">Empezar ensayo ahora</button>`;
   }
   h += `<div class="grid2"><label class="field"><span>Fecha</span><input type="date" data-f="${id}|date" value="${esc(d.date)}"></label>
     <label class="field"><span>Hora</span><input type="time" data-f="${id}|time" value="${esc(d.time)}"></label>
     <label class="field"><span>Lugar</span><input data-f="${id}|place" value="${esc(d.place)}"></label>
     <label class="field"><span>Duración</span><input data-f="${id}|duration" value="${esc(d.duration)}" placeholder="2 h"></label></div></div>`;
-  h += `<div class="sec"><div class="label">Asistentes</div><div class="chips">${members().map(m => `<button class="chip" data-a="toggleIn" data-id="${id}" data-k="attendees" data-v="${m.id}" aria-pressed="${(d.attendees || []).includes(m.id)}">${avatar(m)}${esc(m.data.name)}${m.data.guest ? ' · inv.' : ''}</button>`).join('') || '<span class="small muted">Añade miembros en Grupo.</span>'}</div></div>`;
+  h += `<div class="sec"><div class="label">Asistentes</div><div class="chips">${members().map(m => `<button class="chip" data-a="toggleIn" data-id="${id}" data-k="attendees" data-v="${m.id}" aria-pressed="${(d.attendees || []).includes(m.id)}">${avatar(m)}${esc(mName(m))}${m.data.guest ? ' · inv.' : ''}</button>`).join('') || '<span class="small muted">Añade miembros en Grupo.</span>'}</div></div>`;
   h += `<div class="sec"><div class="label">Temas tocados</div>`;
   h += songs.length ? `<div class="list">${songs.map(s => {
     const recs = recsOf(x => x.data.song_id === s.id && x.data.rehearsal_id === id);
     return `<div class="li" style="flex-wrap:wrap"><button class="grow" data-a="open" data-v="song" data-id="${s.id}" style="border:0;background:none;text-align:left;padding:0"><span class="t">${esc(s.data.title)}</span><br><span class="s">${recs.length ? recs.length + ' grabación(es) en este ensayo' : 'Sin grabaciones hoy'}</span></button>
       <button class="x" data-a="toggleIn" data-id="${id}" data-k="songs" data-v="${s.id}" aria-label="Quitar">×</button>
+      <textarea data-f="${id}|song_notes.${s.id}" placeholder="Cómo ha ido este tema…" style="min-height:64px;width:100%" aria-label="Notas de ${esc(s.data.title)}">${esc((d.song_notes || {})[s.id])}</textarea>
       ${recs.length ? `<div class="list" style="width:100%">${recs.map(x => recRow(x)).join('')}</div>` : ''}</div>`;
   }).join('')}</div>` : `<p class="small muted">Todavía ningún tema.</p>`;
   h += `<select data-ch="rehAdd" aria-label="Añadir tema tocado"><option value="">+ Añadir tema tocado…</option>${songsSorted().filter(s => !(d.songs || []).includes(s.id)).map(s => `<option value="${s.id}">${esc(s.data.title)}</option>`).join('')}</select></div>`;
@@ -425,7 +450,7 @@ VIEWS.rehearsal = v => {
   const tasks = all('task').filter(t => t.data.rehearsal_id === id);
   h += `<div class="sec"><div class="label">Deberes para el próximo ensayo</div>${tasks.length ? `<div class="list">${tasks.map(taskRow).join('')}</div>` : ''}
     <form class="stack" id="taskForm" data-id="${id}"><input id="taskText" placeholder="Ej.: sacar el solo de Burbujas" autocomplete="off">
-    <div class="row"><select id="taskWho" class="grow" style="flex:1"><option value="">Para todos</option>${members().map(m => `<option value="${m.id}">${esc(m.data.name)}</option>`).join('')}</select><button class="btn" type="submit">Añadir</button></div></form></div>`;
+    <div class="row"><select id="taskWho" class="grow" style="flex:1"><option value="">Para todos</option>${members().map(m => `<option value="${m.id}">${esc(mName(m))}</option>`).join('')}</select><button class="btn" type="submit">Añadir</button></div></form></div>`;
   h += `<div class="sec"><button class="btn danger" data-a="trashIt" data-id="${id}">Mandar ensayo a la papelera</button></div>`;
   return h;
 };
@@ -478,7 +503,7 @@ VIEWS.gig = v => {
     <label class="field"><span>Caché o condiciones</span><input data-f="${id}|fee" value="${esc(d.fee)}"></label>
     <label class="field"><span>Setlist</span><select data-f="${id}|setlist_id" data-r><option value="">— Sin setlist —</option>${all('setlist').map(s => `<option value="${s.id}" ${s.id === d.setlist_id ? 'selected' : ''}>${esc(s.data.name)}</option>`).join('')}</select></label>
     ${sl ? `<div class="row"><button class="btn pri" data-a="stage" data-id="${sl.id}">Modo escenario</button><button class="btn" data-a="open" data-v="setlist" data-id="${sl.id}">Ver setlist</button></div>` : ''}</div>`;
-  h += `<div class="sec"><div class="label">Quién toca</div><div class="chips">${members().map(m => `<button class="chip" data-a="toggleIn" data-id="${id}" data-k="attendees" data-v="${m.id}" aria-pressed="${(d.attendees || []).includes(m.id)}">${avatar(m)}${esc(m.data.name)}</button>`).join('')}</div></div>`;
+  h += `<div class="sec"><div class="label">Quién toca</div><div class="chips">${members().map(m => `<button class="chip" data-a="toggleIn" data-id="${id}" data-k="attendees" data-v="${m.id}" aria-pressed="${(d.attendees || []).includes(m.id)}">${avatar(m)}${esc(mName(m))}</button>`).join('')}</div></div>`;
   const gear = [...gearAll(), ...(d.extra_gear || [])]; const chk = d.check || {};
   const done = gear.filter(x => chk[x]).length;
   h += `<div class="sec"><div class="row between"><div class="label">Material</div><span class="mono small muted">${done}/${gear.length}</span></div><div class="list">${gear.map(x => `<div class="li"><button class="check" data-a="gearChk" data-id="${id}" data-v="${esc(x)}" aria-pressed="${!!chk[x]}">${chk[x] ? '✓' : ''}</button><span class="grow" style="${chk[x] ? 'color:var(--muted);text-decoration:line-through' : ''}">${esc(x)}</span></div>`).join('')}</div>
@@ -495,10 +520,9 @@ VIEWS.band = () => {
   const me = get(S.me.member_id);
   const st = settings();
   let h = topBar(st ? st.data.band_name || 'Grupo' : 'Grupo', false) + `<div class="stack">`;
-  if (me) h += `<div class="card stack"><div class="label">Mi ficha</div><div class="row">${avatar(me)}<input data-f="${me.id}|name" value="${esc(me.data.name)}" style="flex:1" aria-label="Mi nombre"><input type="color" data-f="${me.id}|color" data-r value="${esc(me.data.color || '#2FE3CB')}" style="width:52px;padding:4px" aria-label="Mi color"></div>
-    <div class="chips">${(me.data.roles || []).map(r => `<span class="tag">${esc(r)}</span>`).join('') || '<span class="small muted">Sin rol asignado</span>'}</div></div>`;
-  h += `</div><div class="sec"><div class="row between"><div class="label">Miembros</div>${isAdmin() ? `<div class="row"><button class="btn sm" data-a="newMember" data-v="0">+ Miembro</button><button class="btn sm" data-a="newMember" data-v="1">+ Invitado</button></div>` : ''}</div>
-    <div class="list">${members().map(m => `<button class="li" data-a="member" data-id="${m.id}">${avatar(m)}<span class="grow"><span class="t">${esc(m.data.name)}</span><br><span class="s">${esc((m.data.roles || []).join(', ') || 'Sin rol')}</span></span>${m.data.guest ? '<span class="tag">Invitado</span>' : ''}${REMOTE && S.accounts.some(a => a.member_id === m.id && a.role === 'admin') ? '<span class="tag acc">Admin</span>' : ''}</button>`).join('')}</div></div>`;
+  if (me) h += `<button class="card row" data-a="open" data-v="member" data-id="${me.id}" style="text-align:left;width:100%">${avatar(me)}<span class="grow"><span class="label">Mi ficha</span><br><b>${esc(mName(me))}</b> <span class="small muted">${esc((me.data.roles || []).join(', '))}</span></span><span class="chev muted">›</span></button>`;
+  h += `</div><div class="sec"><div class="row between"><div class="label">Miembros</div>${isAdmin() ? `<div class="row"><button class="btn sm" data-a="newMember" data-v="0">+ Colaborador</button><button class="btn sm" data-a="newMember" data-v="1">+ Invitado</button></div>` : ''}</div>
+    <div class="list">${members().map(m => `<button class="li" data-a="open" data-v="member" data-id="${m.id}">${avatar(m)}<span class="grow"><span class="t">${esc(mName(m))}</span><br><span class="s">${esc([m.data.name !== mName(m) ? m.data.name : '', (m.data.roles || []).join(', ') || 'Sin rol'].filter(Boolean).join(' · '))}</span></span>${m.data.guest ? '<span class="tag">Invitado</span>' : ''}${REMOTE && S.accounts.some(a => a.member_id === m.id && a.role === 'admin') ? '<span class="tag acc">Admin</span>' : ''}<span class="chev">›</span></button>`).join('')}</div></div>`;
   if (isAdmin()) {
     h += `<div class="sec"><div class="label">Administración</div><div class="list">
       ${REMOTE ? `<button class="li" data-a="invite"><span class="grow"><span class="t">Invitar al grupo</span><br><span class="s">Código de invitación para que se unan</span></span><span class="chev">›</span></button>
@@ -510,6 +534,40 @@ VIEWS.band = () => {
   }
   h += `<div class="sec"><div class="label">Sincronización</div><div class="card stack">${REMOTE ? `<div class="row between"><span id="pendinfo">${pendText()}</span>${syncBadge()}</div><button class="btn sm" data-a="syncNow" style="align-self:flex-start">Sincronizar ahora</button>` : `<p class="small muted">Modo prueba: no hay nube configurada. Los datos solo están en este móvil.</p>`}</div></div>`;
   if (REMOTE) h += `<div class="sec"><div class="label">Mi cuenta</div><div class="card stack"><span class="small muted">${esc(S.me.email)} · ${isAdmin() ? 'Administrador' : 'Miembro'}</span><button class="btn danger sm" data-a="logout" style="align-self:flex-start">Cerrar sesión</button></div></div>`;
+  return h;
+};
+VIEWS.member = v => {
+  const m = get(v.id); if (!m) return topBar('Ficha no encontrada') + `<div class="card empty">Puede que se haya dado de baja.</div>`;
+  const d = m.data, id = m.id, adm = isAdmin(), can = adm || id === S.me.member_id;
+  const acc = REMOTE ? S.accounts.find(a => a.member_id === id) : null;
+  const extraRoles = (d.roles || []).filter(r => !ROLES.includes(r));
+  let h = topBar(mName(m));
+  const icons = roleIcons(m);
+  h += `<div class="prof"><div class="prof-top">${icons.length ? `<div class="prof-inst">${icons.map(k => `<span class="inst-ic" title="${ICON_LABEL[k]}" role="img" aria-label="${ICON_LABEL[k]}">${INST_ICON[k]}</span>`).join('')}</div>` : ''}<div class="prof-photo" style="background-color:${esc(d.color || '#888')}" ${d.photo && d.photo.key ? `data-bg="${d.photo.key}|${esc(d.photo.path)}"` : ''}>${d.photo && d.photo.key ? '' : `<span>${esc(initials(mName(m)))}</span>`}
+      ${can ? `<label class="prof-edit" aria-label="Cambiar foto de perfil">Cambiar foto<input type="file" accept="image/*" data-img="${id}|photo|one" hidden></label>` : ''}</div>${icons.length ? '<div class="prof-inst" aria-hidden="true" style="visibility:hidden"></div>' : ''}</div>
+    <div class="prof-name">${esc(mName(m))}</div>${d.name && d.name !== mName(m) ? `<div class="muted">${esc(d.name)}</div>` : ''}
+    <div class="chips" style="justify-content:center">${(d.roles || []).map(r => `<span class="tag">${esc(r)}</span>`).join('')}${d.guest ? '<span class="tag">Invitado</span>' : ''}${acc && acc.role === 'admin' ? '<span class="tag acc">Admin</span>' : ''}</div></div>`;
+  if (can) h += `<div class="sec"><div class="grid2"><label class="field"><span>Alias (como sale en la app)</span><input data-f="${id}|alias" value="${esc(d.alias || '')}"></label>
+    <label class="field"><span>Nombre completo</span><input data-f="${id}|name" value="${esc(d.name || '')}"></label></div>
+    <label class="field" style="flex-direction:row;align-items:center;gap:10px"><span>Color</span><input type="color" data-f="${id}|color" data-r value="${esc(d.color || '#2FE3CB')}" style="width:56px;padding:4px"></label></div>`;
+  if (adm) h += `<div class="sec"><div class="label">Roles e instrumentos</div><div class="chips">${[...ROLES, ...extraRoles].map(r => `<button class="chip" data-a="roleToggle" data-id="${id}" data-v="${esc(r)}" aria-pressed="${(d.roles || []).includes(r)}">${esc(r)}</button>`).join('')}</div>
+    <form class="row" id="roleForm" data-id="${id}" style="flex-wrap:nowrap"><input id="roleIn" placeholder="Otro rol (saxo, teclados…)" style="flex:1"><button class="btn sm" type="submit">Añadir</button></form>
+    <label class="switch"><span>Músico invitado (sin cuenta)</span><input type="checkbox" data-f="${id}|guest" data-r ${d.guest ? 'checked' : ''}></label></div>`;
+  const quotes = (d.quotes || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  h += `<div class="sec"><div class="label">Citas célebres</div>${quotes.length ? quotes.map(q => `<figure class="quote"><blockquote>${esc(q.text)}</blockquote>
+      <figcaption>— ${esc(mName(m))}${q.date ? ', ' + esc(fmtDay(q.date, { day: 'numeric', month: 'long', year: 'numeric' })) : ''}${q.context ? ' · ' + esc(q.context) : ''}</figcaption>
+      ${can ? `<button class="x" data-a="quoteDel" data-id="${id}" data-v="${q.id}" aria-label="Borrar cita">×</button>` : ''}</figure>`).join('') : `<p class="small muted">Aún no hay frases para la posteridad. Todo llegará.</p>`}
+    ${can ? `<form class="stack" id="quoteForm" data-id="${id}"><textarea id="qText" placeholder="La frase, tal cual la dijo" style="min-height:70px" required></textarea>
+      <div class="grid2"><input id="qDate" type="date" value="${isoDay()}" aria-label="Fecha"><input id="qCtx" placeholder="Contexto (opcional)" aria-label="Contexto"></div><button class="btn" type="submit">Guardar cita</button></form>` : ''}</div>`;
+  const photos = d.photos || [];
+  h += `<div class="sec"><div class="label">Fotos</div><div class="thumbs">${photos.map(im => `<button class="thumb" data-a="viewImg" data-key="${im.key}" data-path="${esc(im.path)}" data-list="${id}|photos" data-candel="${can ? 1 : 0}" data-bg="${im.key}|${esc(im.path)}" aria-label="Ver foto"></button>`).join('')}
+    ${can ? `<label class="thumb" style="display:grid;place-items:center;cursor:pointer;font-size:1.6rem;color:var(--muted)" aria-label="Añadir foto">+<input type="file" accept="image/*" data-img="${id}|photos|many" hidden></label>` : ''}</div>
+    ${!photos.length && !can ? '<p class="small muted">Sin fotos todavía.</p>' : ''}</div>`;
+  h += `<div class="sec">${can ? `<label class="field"><span>Notas propias</span><textarea data-f="${id}|notes" placeholder="Material, ajustes del ampli, recordatorios…">${esc(d.notes)}</textarea></label>`
+    : `<div class="label">Notas</div>${d.notes ? `<div class="card" style="white-space:pre-wrap">${esc(d.notes)}</div>` : '<p class="small muted">Sin notas.</p>'}`}</div>`;
+  if (!can) h += `<p class="small muted" style="margin-top:14px">Solo ${esc(mName(m))} y el administrador pueden editar esta ficha.</p>`;
+  if (REMOTE && adm) h += `<p class="small muted" style="margin-top:14px">${acc ? 'Usa la app con su cuenta.' : d.guest ? 'Los invitados no necesitan cuenta.' : 'Todavía no ha entrado en la app. Al unirse con el código podrá elegir esta ficha.'}</p>`;
+  if (adm && id !== S.me.member_id) h += `<div class="sec"><button class="btn danger" data-a="trashIt" data-id="${id}">Dar de baja</button></div>`;
   return h;
 };
 VIEWS.trash = () => {
@@ -542,23 +600,24 @@ function hydrate() {
   });
   if (V.name === 'setlist') bindDrag();
 }
-async function compressImage(file) {
+async function compressImage(file, max = 1600) {
   const bmp = await createImageBitmap(file);
-  const s = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+  const s = Math.min(1, max / Math.max(bmp.width, bmp.height));
   const c = document.createElement('canvas'); c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
   c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
   return new Promise(r => c.toBlob(r, 'image/jpeg', 0.82));
 }
 async function addImage(el) {
   const f = el.files && el.files[0]; if (!f) return;
-  const [id, k] = el.dataset.img.split('|');
+  const [id, path, mode] = el.dataset.img.split('|'); const pa = path.split('.');
   try {
-    const blob = await compressImage(f);
-    const key = uuid(), path = `img/${key}.jpg`;
-    await storeFile(key, blob, path, null);
-    const s = S.items.get(id); const arr = (deepGet(s.data, ['inst', k, 'img']) || []).concat([{ key, path }]);
-    await setField(id, ['inst', k, 'img'], arr, { render: true });
-    toast('Imagen añadida');
+    const blob = await compressImage(f, mode === 'one' ? 900 : 1600);
+    const key = uuid(), fpath = `img/${key}.jpg`;
+    await storeFile(key, blob, fpath, null);
+    const s = S.items.get(id);
+    const val = mode === 'one' ? { key, path: fpath } : (deepGet(s.data, pa) || []).concat([{ key, path: fpath }]);
+    await setField(id, pa, val, { render: true });
+    toast(mode === 'one' ? 'Foto actualizada' : 'Imagen añadida');
   } catch (e) { toast('No se pudo añadir la imagen'); }
 }
 
@@ -614,6 +673,14 @@ const ACT = {
   songFilter: el => { V.st = el.dataset.v; history.replaceState(V, ''); render(); },
   songTab: el => { flushFields(); Metro.stop(); V.tab = el.dataset.v; history.replaceState(V, ''); render(); window.scrollTo(0, 0); },
   recFilter: el => { V.tag = el.dataset.v; history.replaceState(V, ''); render(); },
+  quoteDel: async el => {
+    if (!await confirmBox('¿Borrar esta cita?', 'Borrar')) return;
+    const m = get(el.dataset.id); setField(m.id, ['quotes'], (m.data.quotes || []).filter(q => q.id !== el.dataset.v), { render: true });
+  },
+  roleToggle: el => {
+    const m = get(el.dataset.id); const arr = (m.data.roles || []).slice(); const i = arr.indexOf(el.dataset.v);
+    if (i >= 0) arr.splice(i, 1); else arr.push(el.dataset.v); setField(m.id, ['roles'], arr, { render: true });
+  },
   liveSub: el => { V.sub = el.dataset.v; history.replaceState(V, ''); render(); },
   async newSong() {
     const t = await askText('Nuevo tema', 'Título'); if (!t) return;
@@ -645,7 +712,7 @@ const ACT = {
   recGig: el => openRecorder({ gig_id: el.dataset.id }),
   play: el => openPlayer(el.dataset.id),
   linkRec: el => openLinkRec(V.id, el.dataset.v),
-  viewImg: el => openImage(el.dataset.key, el.dataset.path),
+  viewImg: el => openImage(el.dataset.key, el.dataset.path, el.dataset.list, el.dataset.candel === '1'),
   async newRehearsal() {
     const last = all('rehearsal').sort((a, b) => (b.data.date || '').localeCompare(a.data.date || ''))[0];
     const id = await createItem('rehearsal', { date: isoDay(), time: hhmm(), place: last ? last.data.place || '' : '', duration: '', attendees: members().filter(m => !m.data.guest).map(m => m.id), songs: [], notes: '', open: false });
@@ -669,11 +736,12 @@ const ACT = {
   slDel: el => { const s = get(V.id); const e = (s.data.entries || []).slice(); e.splice(Number(el.dataset.v), 1); setField(s.id, ['entries'], e, { render: true }); },
   async dupSetlist(el) { const s = get(el.dataset.id); const id = await createItem('setlist', { name: (s.data.name || 'Setlist') + ' (copia)', entries: clone(s.data.entries || []) }); go({ name: 'setlist', id }, 'replace'); toast('Setlist duplicado'); },
   stage: el => openStage(el.dataset.id),
-  member: el => openMember(el.dataset.id),
+
   async newMember(el) {
     const guest = el.dataset.v === '1';
-    const id = await createItem('member', { name: guest ? 'Invitado' : 'Nuevo miembro', roles: [], color: COLORS[all('member').length % COLORS.length], guest });
-    openMember(id);
+    const nm = guest ? 'Invitado' : 'Colaborador';
+    const id = await createItem('member', { name: nm, alias: nm, roles: [], color: COLORS[all('member').length % COLORS.length], guest, notes: '', photos: [], quotes: [] });
+    go({ name: 'member', id });
   },
   invite: openInvite,
   accounts: openAccounts,
@@ -713,6 +781,14 @@ document.addEventListener('submit', async e => {
   } else if (f.id === 'sepForm') {
     e.preventDefault(); const t = $('#sepText').value.trim(); if (!t) return;
     const s = get(V.id); setField(s.id, ['entries'], (s.data.entries || []).concat([{ k: 'x', text: t }]), { render: true });
+  } else if (f.id === 'quoteForm') {
+    e.preventDefault(); const t = $('#qText').value.trim(); if (!t) return;
+    const m = get(f.dataset.id);
+    await setField(m.id, ['quotes'], (m.data.quotes || []).concat([{ id: uuid(), text: t, date: $('#qDate').value || isoDay(), context: $('#qCtx').value.trim() }]), { render: true });
+    toast('Cita guardada para la posteridad');
+  } else if (f.id === 'roleForm') {
+    e.preventDefault(); const v = $('#roleIn').value.trim(); if (!v) return;
+    const m = get(f.dataset.id); setField(m.id, ['roles'], [...new Set([...(m.data.roles || []), v])], { render: true });
   } else if (f.id === 'gearForm') {
     e.preventDefault(); const t = $('#gearText').value.trim(); if (!t) return;
     const g = get(V.id); setField(g.id, ['extra_gear'], (g.data.extra_gear || []).concat([t]), { render: true });
@@ -918,16 +994,18 @@ ACT.linkToggle = el => {
   if (i >= 0) arr.splice(i, 1); else arr.push(el.dataset.v); setField(s.id, ['inst', k, 'recs'], arr);
   el.setAttribute('aria-pressed', i < 0); el.textContent = i < 0 ? '✓' : '';
 };
-async function openImage(key, path) {
+async function openImage(key, path, list, canDel) {
   const u = await getUrl(key, path).catch(() => null); if (!u) return toast('Imagen no disponible');
   const v = document.createElement('div'); v.className = 'viewer';
-  v.innerHTML = `<img src="${u}" alt=""><div class="row" style="position:absolute;top:calc(12px + env(safe-area-inset-top,0px));right:12px"><button class="btn sm danger" id="imgDel">Quitar</button><button class="btn sm" id="imgClose">Cerrar</button></div>`;
+  v.innerHTML = `<img src="${u}" alt=""><div class="row" style="position:absolute;top:calc(12px + env(safe-area-inset-top,0px));right:12px">${canDel && list ? '<button class="btn sm danger" id="imgDel">Quitar</button>' : ''}<button class="btn sm" id="imgClose">Cerrar</button></div>`;
   document.body.appendChild(v);
   $('#imgClose', v).onclick = () => v.remove();
-  $('#imgDel', v).onclick = async () => {
-    v.remove(); const s = get(V.id); const k = V.tab;
-    const arr = (deepGet(s.data, ['inst', k, 'img']) || []).filter(x => x.key !== key);
-    await setField(s.id, ['inst', k, 'img'], arr, { render: true }); toast('Imagen quitada');
+  const del = $('#imgDel', v);
+  if (del) del.onclick = async () => {
+    if (!await confirmBox('¿Quitar esta imagen?', 'Quitar')) return;
+    v.remove(); const [id, p] = list.split('|'); const pa = p.split('.'); const s = get(id);
+    const arr = (deepGet(s.data, pa) || []).filter(x => x.key !== key);
+    await setField(id, pa, arr, { render: true }); toast('Imagen quitada');
   };
 }
 
@@ -986,35 +1064,6 @@ stageEl.addEventListener('pointerup', e => { if (ST.x0 == null) return; const dx
 document.addEventListener('keydown', e => { if (stageEl.hidden) return; if (e.key === 'ArrowRight' || e.key === ' ') ACT.stNext(); if (e.key === 'ArrowLeft') ACT.stPrev(); if (e.key === 'Escape') closeStage(); });
 
 /* ---------- miembros, cuentas y ajustes ---------- */
-function openMember(id) {
-  const draw = () => {
-    const m = S.items.get(id); if (!m) return closeSheet();
-    const d = m.data; const can = isAdmin(); const own = id === S.me.member_id;
-    const acc = S.accounts.find(a => a.member_id === id);
-    const extraRoles = (d.roles || []).filter(r => !ROLES.includes(r));
-    return `<div class="row">${avatar(m)}<h3 class="grow">${esc(d.name)}</h3>${d.guest ? '<span class="tag">Invitado</span>' : ''}</div>
-      ${can || own ? `<label class="field"><span>Nombre</span><input data-f="${id}|name" value="${esc(d.name)}"></label>
-      <label class="field"><span>Color</span><input type="color" data-f="${id}|color" value="${esc(d.color || '#2FE3CB')}" style="width:80px;padding:4px"></label>` : ''}
-      <div class="field"><span>Roles e instrumentos</span><div class="chips">${[...ROLES, ...extraRoles].map(r => can ? `<button class="chip" data-a="roleToggle" data-id="${id}" data-v="${esc(r)}" aria-pressed="${(d.roles || []).includes(r)}">${esc(r)}</button>` : ((d.roles || []).includes(r) ? `<span class="tag">${esc(r)}</span>` : '')).join('')}</div>
-      ${can ? `<form class="row" id="roleForm" data-id="${id}" style="flex-wrap:nowrap"><input id="roleIn" placeholder="Otro rol (saxo, teclados…)" style="flex:1"><button class="btn sm" type="submit">Añadir</button></form>` : ''}</div>
-      ${can ? `<label class="switch"><span>Músico invitado</span><input type="checkbox" data-f="${id}|guest" ${d.guest ? 'checked' : ''}></label>` : ''}
-      ${REMOTE ? `<p class="small muted">${acc ? 'Usa la app con su cuenta.' : d.guest ? 'Los invitados no necesitan cuenta.' : 'Sin cuenta en la app (se puede vincular desde Cuentas).'}</p>` : ''}
-      ${can && !own ? `<button class="btn danger" data-a="trashIt" data-id="${id}">Dar de baja</button>` : ''}
-      ${!can && !own ? '<p class="small muted">Solo el administrador puede cambiar los roles.</p>' : ''}
-      <button class="btn" data-a="close">Listo</button>`;
-  };
-  const sh = sheet(draw(), { onClose: () => onChange('local'), refresh: () => { sh.innerHTML = '<div class="grab"></div>' + draw(); } });
-  openMember.sh = sh; openMember.draw = draw;
-}
-ACT.roleToggle = el => {
-  const m = get(el.dataset.id); const arr = (m.data.roles || []).slice(); const i = arr.indexOf(el.dataset.v);
-  if (i >= 0) arr.splice(i, 1); else arr.push(el.dataset.v); setField(m.id, ['roles'], arr); el.setAttribute('aria-pressed', i < 0);
-};
-document.addEventListener('submit', e => {
-  if (e.target.id !== 'roleForm') return; e.preventDefault();
-  const id = e.target.dataset.id; const v = $('#roleIn').value.trim(); if (!v) return;
-  const m = get(id); setField(id, ['roles'], [...new Set([...(m.data.roles || []), v])]).then(() => { openMember.sh.innerHTML = '<div class="grab"></div>' + openMember.draw(); });
-});
 async function openInvite() {
   const sh = sheet(`<h3>Invitar al grupo</h3><div id="invBox"><p class="muted">Cargando…</p></div>`);
   const show = code => {
@@ -1039,7 +1088,7 @@ async function openAccounts() {
     if (error) { $('#accBox', sh).innerHTML = `<p class="err">${esc(errMsg(error))}</p>`; return; }
     const ms = members(true);
     $('#accBox', sh).innerHTML = `<div class="stack">${data.map(a => `<div class="card stack"><div class="row between"><b>${esc(a.email || a.display_name)}</b><span class="tag ${a.role === 'admin' ? 'acc' : ''}">${a.role === 'admin' ? 'Admin' : 'Miembro'}</span></div>
-      <label class="field"><span>Ficha de miembro</span><select data-acc="${a.user_id}">${ms.map(m => `<option value="${m.id}" ${m.id === a.member_id ? 'selected' : ''}>${esc(m.data.name)}${m.data.guest ? ' (invitado)' : ''}</option>`).join('')}</select></label>
+      <label class="field"><span>Ficha de miembro</span><select data-acc="${a.user_id}">${ms.map(m => `<option value="${m.id}" ${m.id === a.member_id ? 'selected' : ''}>${esc(mName(m))}${m.data.guest ? ' (invitado)' : ''}</option>`).join('')}</select></label>
       ${a.user_id !== S.me.uid ? `<div class="row"><button class="btn sm danger" data-kick="${a.user_id}">Expulsar</button><button class="btn sm" data-admin="${a.user_id}">Hacer administrador</button></div>` : '<span class="small muted">Eres tú</span>'}</div>`).join('')}</div>`;
     $$('[data-acc]', sh).forEach(s => s.addEventListener('change', async () => {
       const { error } = await sb.rpc('link_account', { p_user: s.dataset.acc, p_member: s.value }); if (error) return toast(errMsg(error));
@@ -1146,27 +1195,34 @@ function renderAuth(mode, st) {
     };
   } else if (mode === 'join') {
     let nm = ''; try { nm = localStorage.getItem('sps.name') || ''; } catch (x) {}
-    authShell(`<h1>Unirte al grupo</h1><p class="muted">Pide el código de invitación al administrador.</p>
-      <form class="stack" id="joinF"><label class="field"><span>Tu nombre en el grupo</span><input id="jName" required value="${esc(nm)}"></label>
-      <label class="field"><span>Código de invitación</span><input id="jCode" required autocomplete="off" style="text-transform:uppercase;letter-spacing:.15em" class="mono"></label>
-      <p class="err" id="jErr"></p><button class="btn pri block" type="submit">Unirme</button></form>
-      ${st && !st.admin_exists ? `<div class="card stack"><b>¿Eres quien monta la app?</b><p class="small muted">El grupo todavía no existe. Créalo y serás el administrador.</p>
-      <label class="field"><span>Nombre del grupo</span><input id="bName" value="San Peregrino Squirt"></label><button class="btn block" id="bCreate">Crear el grupo</button></div>` : ''}
+    const first = st && !st.admin_exists;
+    authShell(`<h1>${first ? 'Crear el grupo' : 'Unirte al grupo'}</h1>
+      <p class="muted">${first ? 'Eres el primero en entrar: serás el administrador.' : 'Pide el código de invitación al administrador.'}</p>
+      ${first ? '' : `<form class="stack" id="codeF"><label class="field"><span>Código de invitación</span><input id="jCode" required autocomplete="off" style="text-transform:uppercase;letter-spacing:.15em" class="mono"></label><button class="btn pri block" type="submit">Continuar</button></form>`}
+      <div id="whoBox"></div><p class="err" id="jErr"></p>
       <button class="btn ghost sm" id="jOut">Cerrar sesión</button>`);
     $('#jOut').onclick = async () => { await sb.auth.signOut(); renderAuth('login'); };
-    $('#joinF').onsubmit = async e => {
-      e.preventDefault();
-      const { data, error } = await sb.rpc('join_band', { p_code: $('#jCode').value, p_name: $('#jName').value.trim() });
+    let code = '';
+    const finish = async (memberId, name) => {
+      const args = { p_name: name, p_member: memberId || null };
+      const { data, error } = first ? await sb.rpc('create_band', { p_band: 'San Peregrino Squirt', ...args }) : await sb.rpc('join_band', { p_code: code, ...args });
       if (error) { $('#jErr').textContent = errMsg(error); return; }
       await enter(data);
     };
-    const bc = $('#bCreate');
-    if (bc) bc.onclick = async () => {
-      const name = $('#jName').value.trim(); if (!name) { $('#jErr').textContent = 'Escribe tu nombre arriba.'; return; }
-      const { data, error } = await sb.rpc('create_band', { p_band: $('#bName').value.trim(), p_name: name });
+    const showWho = async () => {
+      $('#jErr').textContent = '';
+      const { data, error } = await sb.rpc('unclaimed_members', { p_code: code });
       if (error) { $('#jErr').textContent = errMsg(error); return; }
-      await enter(data);
+      const cf = $('#codeF'); if (cf) cf.hidden = true;
+      $('#whoBox').innerHTML = `<div class="stack"><div class="label">¿Quién eres?</div>
+        ${(data || []).map(m => `<button class="btn block" data-who="${m.id}" data-n="${esc(m.alias || m.name)}" style="justify-content:space-between"><span><b>${esc(m.alias || m.name)}</b> <span class="muted">${esc(m.name || '')}</span></span><span class="muted small">${esc((m.roles || []).join(', '))}</span></button>`).join('')}
+        <details class="card"><summary style="cursor:pointer">No estoy en la lista (colaborador)</summary>
+        <form class="stack" id="newF" style="margin-top:10px"><label class="field"><span>Tu nombre o alias</span><input id="jName" required value="${esc(nm)}"></label><button class="btn pri" type="submit">Entrar como colaborador</button></form></details></div>`;
+      $$('[data-who]').forEach(b => b.onclick = () => finish(b.dataset.who, b.dataset.n));
+      $('#newF').onsubmit = e => { e.preventDefault(); finish(null, $('#jName').value.trim()); };
     };
+    if (first) showWho();
+    else $('#codeF').onsubmit = e => { e.preventDefault(); code = $('#jCode').value.trim(); showWho(); };
   } else if (mode === 'offline') {
     authShell(`<h1>Sin conexión</h1><p class="muted">La primera vez hace falta conexión para entrar. Vuelve a intentarlo cuando tengas cobertura.</p><button class="btn pri" onclick="location.reload()">Reintentar</button>`);
   } else if (mode === 'nolib') {
