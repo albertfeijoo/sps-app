@@ -4,6 +4,6 @@
 //  Si los dejas vacíos, la app funciona en "modo prueba" (solo en tu móvil).
 // =====================================================================
 window.SPS_CONFIG = {
-  url: '',   // Project URL, por ejemplo: 'https://abcdefghijkl.supabase.co'
-  key: ''    // Clave pública: la "Publishable key" (sb_publishable_...) o la "anon public"
+  url: 'https://qclnckmtzbtghqmqdptx.supabase.co',   // Project URL, por ejemplo: 'https://abcdefghijkl.supabase.co'
+  key: 'sb_publishable_6Dp1Mf0EiFnl_ZSf5-zXlA_cP9IZXH4'    // Clave pública: la "Publishable key" (sb_publishable_...) o la "anon public"
 };
