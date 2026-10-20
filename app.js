@@ -533,7 +533,8 @@ VIEWS.band = () => {
       <button class="li" data-a="backup"><span class="grow"><span class="t">Copia de seguridad</span><br><span class="s">Descargar todos los datos y audios</span></span><span class="chev">›</span></button></div></div>`;
   }
   h += `<div class="sec"><div class="label">Sincronización</div><div class="card stack">${REMOTE ? `<div class="row between"><span id="pendinfo">${pendText()}</span>${syncBadge()}</div><button class="btn sm" data-a="syncNow" style="align-self:flex-start">Sincronizar ahora</button>` : `<p class="small muted">Modo prueba: no hay nube configurada. Los datos solo están en este móvil.</p>`}</div></div>`;
-  if (REMOTE) h += `<div class="sec"><div class="label">Mi cuenta</div><div class="card stack"><span class="small muted">${esc(S.me.email)} · ${isAdmin() ? 'Administrador' : 'Miembro'}</span><button class="btn danger sm" data-a="logout" style="align-self:flex-start">Cerrar sesión</button></div></div>`;
+  if (REMOTE) h += `<div class="sec"><div class="label">Mi cuenta</div><div class="card stack"><span class="small muted">Usuario: <b style="color:var(--ink)">${esc(emailToUser(S.me.email))}</b> · ${isAdmin() ? 'Administrador' : 'Miembro'}</span>
+    <div class="row"><button class="btn sm" data-a="changePass">Cambiar contraseña</button><button class="btn danger sm" data-a="logout">Cerrar sesión</button></div></div></div>`;
   return h;
 };
 VIEWS.member = v => {
@@ -754,6 +755,17 @@ const ACT = {
     await purgeItem(it.id); toast('Borrado');
   },
   syncNow: async () => { await flush(); if (REMOTE && sb) await pullAll().catch(e => toast('No se pudo sincronizar: ' + errMsg(e))); toast('Sincronizado'); },
+  changePass() {
+    const sh = sheet(`<h3>Cambiar contraseña</h3><form class="stack" id="cpF"><label class="field"><span>Nueva contraseña</span><input id="cp1" type="password" minlength="6" required autocomplete="new-password"></label>
+      <label class="field"><span>Repítela</span><input id="cp2" type="password" minlength="6" required autocomplete="new-password"></label><p class="err" id="cpErr"></p><button class="btn pri" type="submit">Guardar</button></form>`);
+    $('#cpF', sh).onsubmit = async e => {
+      e.preventDefault(); const a = $('#cp1', sh).value, b = $('#cp2', sh).value;
+      if (a !== b) { $('#cpErr', sh).textContent = 'No coinciden.'; return; }
+      const { error } = await sb.auth.updateUser({ password: a });
+      if (error) { $('#cpErr', sh).textContent = /weak|short|at least/i.test(errMsg(error)) ? 'Demasiado corta: usa al menos 6 caracteres.' : /same/i.test(errMsg(error)) ? 'Es la misma que la actual.' : errMsg(error); return; }
+      closeSheet(); toast('Contraseña cambiada');
+    };
+  },
   async logout() {
     const extra = S.outbox.length ? `<p class="err">Hay ${S.outbox.length} cambio(s) sin enviar. Si cierras sesión ahora se perderán.</p>` : '';
     if (!await confirmBox('¿Cerrar sesión en este móvil?', 'Cerrar sesión', true, extra)) return;
@@ -1153,43 +1165,30 @@ function authShell(inner) {
   nav.hidden = true; fab.hidden = true;
   app.innerHTML = `<div class="auth"><img class="logo" src="brand/logo.jpg" alt="San Peregrino Squirt">${inner}</div>`;
 }
+// El usuario es el alias: «Trolas» → trolas@sanperegrino.app (también vale escribir un email entero)
+const USER_DOMAIN = 'sanperegrino.app';
+const userToEmail = u => { u = u.trim(); return u.includes('@') ? u.toLowerCase() : u.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9._-]/g, '') + '@' + USER_DOMAIN; };
+const emailToUser = e => (e || '').endsWith('@' + USER_DOMAIN) ? e.split('@')[0] : e;
 function renderAuth(mode, st) {
   authMode = mode;
   if (mode === 'login' || mode === 'signup') {
-    const su = mode === 'signup';
-    authShell(`<h1>${su ? 'Crear cuenta' : 'Entrar'}</h1>
-      <form class="stack" id="authF">${su ? '<label class="field"><span>Tu nombre</span><input id="auName" required autocomplete="name"></label>' : ''}
-      <label class="field"><span>Email</span><input id="auEmail" type="email" required autocomplete="email"></label>
-      <label class="field"><span>Contraseña</span><input id="auPass" type="password" required minlength="6" autocomplete="${su ? 'new-password' : 'current-password'}"></label>
-      <p class="err" id="auErr"></p><button class="btn pri block" type="submit">${su ? 'Crear cuenta' : 'Entrar'}</button></form>
-      <button class="btn ghost" id="auSwap">${su ? 'Ya tengo cuenta' : 'Soy nuevo: crear cuenta'}</button>
-      ${su ? '' : '<button class="btn ghost sm" id="auForgot">He olvidado la contraseña</button>'}`);
-    $('#auSwap').onclick = () => renderAuth(su ? 'login' : 'signup');
-    if (!su) $('#auForgot').onclick = async () => {
-      const em = $('#auEmail').value.trim(); if (!em) { $('#auErr').textContent = 'Escribe tu email primero.'; return; }
-      const { error } = await sb.auth.resetPasswordForEmail(em, { redirectTo: location.href.split('#')[0] });
-      $('#auErr').textContent = error ? errMsg(error) : 'Te hemos enviado un email para cambiarla.';
-    };
+    authShell(`<h1>Entrar</h1>
+      <form class="stack" id="authF">
+      <label class="field"><span>Usuario</span><input id="auUser" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Shaki, Toni, Robert o Trolas"></label>
+      <label class="field"><span>Contraseña</span><input id="auPass" type="password" required autocomplete="current-password"></label>
+      <p class="err" id="auErr"></p><button class="btn pri block" type="submit">Entrar</button></form>
+      <p class="small muted">¿No tienes usuario o has olvidado la contraseña? Pídeselo a Shaki.</p>`);
     $('#authF').onsubmit = async e => {
       e.preventDefault(); const err = $('#auErr'); err.textContent = '';
-      const email = $('#auEmail').value.trim(), password = $('#auPass').value;
+      const email = userToEmail($('#auUser').value), password = $('#auPass').value;
       const btn = e.submitter || $('#authF button[type=submit]'); btn.disabled = true;
       try {
-        let res;
-        if (su) {
-          const name = $('#auName').value.trim();
-          res = await sb.auth.signUp({ email, password, options: { data: { name } } });
-          if (res.error) throw res.error;
-          try { localStorage.setItem('sps.name', name); } catch (x) {}
-          if (!res.data.session) { err.textContent = 'Cuenta creada. Revisa tu email para confirmarla y vuelve a entrar.'; btn.disabled = false; return; }
-        } else {
-          res = await sb.auth.signInWithPassword({ email, password });
-          if (res.error) throw res.error;
-        }
+        const res = await sb.auth.signInWithPassword({ email, password });
+        if (res.error) throw res.error;
         await afterLogin(res.data.session.user);
       } catch (x) {
         const m = errMsg(x);
-        err.textContent = /Invalid login/i.test(m) ? 'Email o contraseña incorrectos.' : /already registered/i.test(m) ? 'Ese email ya tiene cuenta. Entra con él.' : m;
+        err.textContent = /Invalid login/i.test(m) ? 'Usuario o contraseña incorrectos.' : isNetErr(x) ? 'Sin conexión. Inténtalo con cobertura.' : m;
         btn.disabled = false;
       }
     };
