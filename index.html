@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>San Peregrino Squirt</title>
+<meta name="theme-color" content="#101312">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="SPS">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="splash" class="splash"><img src="brand/logo.jpg" alt="San Peregrino Squirt"></div>
+<main id="app" class="app" aria-live="polite"></main>
+<nav id="nav" class="nav" aria-label="Secciones" hidden></nav>
+<button id="fab" class="fab" type="button" hidden aria-label="Grabar"><span class="dotrec"></span>GRABAR</button>
+<div id="layer"></div>
+<div id="stage" class="stage" hidden></div>
+<div id="rec" class="recov" hidden></div>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
+<script src="core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
