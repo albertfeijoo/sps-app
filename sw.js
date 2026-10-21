@@ -1,5 +1,5 @@
 // Service worker: la app abre sin conexión. Los datos del grupo NO pasan por aquí.
-const CACHE = 'sps-v4';
+const CACHE = 'sps-v6';
 const SHELL = ['./', 'index.html', 'app.css', 'core.js', 'app.js', 'config.js', 'manifest.json',
   'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'brand/logo.jpg', 'brand/pill.jpg'];
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
@@ -17,7 +17,7 @@ self.addEventListener('fetch', e => {
   const url = new URL(req.url);
   if (url.origin === location.origin) {
     // Primero la red (para recibir actualizaciones); si no hay, la copia guardada
-    e.respondWith(fetch(req).then(r => {
+    e.respondWith(fetch(req, { cache: 'no-cache' }).then(r => {
       const cp = r.clone(); caches.open(CACHE).then(c => c.put(req, cp)).catch(() => {});
       return r;
     }).catch(() => caches.match(req).then(r => r || caches.match('index.html'))));

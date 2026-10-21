@@ -416,6 +416,15 @@ VIEWS.rehearsals = () => {
     ${r.data.open ? '<span class="tag rec">En curso</span>' : ''}<span class="chev">›</span></button>`).join('')}</div>` : `<div class="card empty">Aún no hay ensayos apuntados.</div>`;
   return h + `</div>`;
 };
+// Lo apuntado de un tema en los dos ensayos anteriores a este
+function prevNotes(reh, songId) {
+  const key = r => (r.data.date || '') + (r.data.time || '') + r.created_at;
+  const prev = all('rehearsal').filter(x => x.id !== reh.id && (x.data.songs || []).includes(songId) && key(x) < key(reh))
+    .sort((a, b) => key(b).localeCompare(key(a))).slice(0, 2);
+  return `<div class="prevnotes" style="width:100%"><div class="label">Últimos ensayos</div>
+    ${prev.length ? prev.map(x => { const n = (x.data.song_notes || {})[songId]; return `<div class="pn"><div class="small"><b>${esc(fmtDay(x.data.date, { weekday: 'short', day: 'numeric', month: 'short' }))}</b> <span class="muted">· ${esc((x.data.attendees || []).map(get).filter(Boolean).map(mName).join(', '))}</span></div><div style="white-space:pre-wrap">${n ? esc(n) : '<span class="muted small">Sin comentarios</span>'}</div></div>`; }).join('') : '<p class="small muted">Es la primera vez que aparece en un ensayo.</p>'}
+    <div class="row"><button class="btn sm" data-a="songHist" data-id="${songId}">Ver historial del tema</button><button class="btn sm ghost" data-a="open" data-v="song" data-id="${songId}">Abrir ficha</button></div></div>`;
+}
 VIEWS.rehearsal = v => {
   const r = get(v.id); if (!r) return topBar('Ensayo no encontrado') + `<div class="card empty">Puede que se haya borrado.</div>`;
   const d = r.data, id = r.id;
@@ -428,6 +437,7 @@ VIEWS.rehearsal = v => {
       <div class="label">Tema actual</div>
       <div class="chips">${songs.map(s => `<button class="chip" data-a="curSong" data-id="${s.id}" aria-pressed="${s.id === d.current_song}">${esc(s.data.title)}</button>`).join('')}</div>
       <select data-ch="rehAddCur" aria-label="Añadir tema"><option value="">+ Añadir tema y ponerlo como actual…</option>${songsSorted().filter(s => !(d.songs || []).includes(s.id)).map(s => `<option value="${s.id}">${esc(s.data.title)}</option>`).join('')}</select>
+      ${cur ? prevNotes(r, cur.id) : ''}
       <button class="btn recb block" data-a="recReh">● Grabar${cur ? ' «' + esc(cur.data.title) + '»' : ''}</button></div>`;
   } else if (d.date === isoDay()) {
     h += `<button class="btn pri block" data-a="openReh" data-id="${id}">Empezar ensayo ahora</button>`;
@@ -437,11 +447,13 @@ VIEWS.rehearsal = v => {
     <label class="field"><span>Lugar</span><input data-f="${id}|place" value="${esc(d.place)}"></label>
     <label class="field"><span>Duración</span><input data-f="${id}|duration" value="${esc(d.duration)}" placeholder="2 h"></label></div></div>`;
   h += `<div class="sec"><div class="label">Asistentes</div><div class="chips">${members().map(m => `<button class="chip" data-a="toggleIn" data-id="${id}" data-k="attendees" data-v="${m.id}" aria-pressed="${(d.attendees || []).includes(m.id)}">${avatar(m)}${esc(mName(m))}${m.data.guest ? ' · inv.' : ''}</button>`).join('') || '<span class="small muted">Añade miembros en Grupo.</span>'}</div></div>`;
-  h += `<div class="sec"><div class="label">Temas tocados</div>`;
+  h += `<div class="sec"><div class="label">Temas tocados</div>${songs.length ? '<p class="small muted">Toca un tema para ver cómo fue en los dos ensayos anteriores.</p>' : ''}`;
   h += songs.length ? `<div class="list">${songs.map(s => {
     const recs = recsOf(x => x.data.song_id === s.id && x.data.rehearsal_id === id);
-    return `<div class="li" style="flex-wrap:wrap"><button class="grow" data-a="open" data-v="song" data-id="${s.id}" style="border:0;background:none;text-align:left;padding:0"><span class="t">${esc(s.data.title)}</span><br><span class="s">${recs.length ? recs.length + ' grabación(es) en este ensayo' : 'Sin grabaciones hoy'}</span></button>
+    const open = V.sel === s.id;
+    return `<div class="li" style="flex-wrap:wrap${open ? ';background:var(--surface2)' : ''}"><button class="grow" data-a="selSong" data-id="${s.id}" aria-expanded="${open}" style="border:0;background:none;text-align:left;padding:0"><span class="t">${open ? '▾' : '▸'} ${esc(s.data.title)}</span><br><span class="s">${recs.length ? recs.length + ' grabación(es) en este ensayo' : 'Sin grabaciones hoy'}</span></button>
       <button class="x" data-a="toggleIn" data-id="${id}" data-k="songs" data-v="${s.id}" aria-label="Quitar">×</button>
+      ${open ? prevNotes(r, s.id) : ''}
       <textarea data-f="${id}|song_notes.${s.id}" placeholder="Cómo ha ido este tema…" style="min-height:64px;width:100%" aria-label="Notas de ${esc(s.data.title)}">${esc((d.song_notes || {})[s.id])}</textarea>
       ${recs.length ? `<div class="list" style="width:100%">${recs.map(x => recRow(x)).join('')}</div>` : ''}</div>`;
   }).join('')}</div>` : `<p class="small muted">Todavía ningún tema.</p>`;
@@ -682,6 +694,8 @@ const ACT = {
     const m = get(el.dataset.id); const arr = (m.data.roles || []).slice(); const i = arr.indexOf(el.dataset.v);
     if (i >= 0) arr.splice(i, 1); else arr.push(el.dataset.v); setField(m.id, ['roles'], arr, { render: true });
   },
+  selSong: el => { V.sel = V.sel === el.dataset.id ? null : el.dataset.id; history.replaceState(V, ''); render(); },
+  songHist: el => go({ name: 'song', id: el.dataset.id, tab: 'log' }),
   liveSub: el => { V.sub = el.dataset.v; history.replaceState(V, ''); render(); },
   async newSong() {
     const t = await askText('Nuevo tema', 'Título'); if (!t) return;
