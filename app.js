@@ -286,14 +286,22 @@ function taskRow(t) {
   return `<div class="li"><button class="check" data-a="taskDone" data-id="${t.id}" aria-pressed="${!!t.data.done}" aria-label="Hecho">${t.data.done ? '✓' : ''}</button>
     <span class="grow" style="${t.data.done ? 'text-decoration:line-through;color:var(--muted)' : ''}">${esc(t.data.text)}</span>${m ? avatar(m) : ''}<button class="x" data-a="taskDel" data-id="${t.id}" aria-label="Quitar">×</button></div>`;
 }
+// Tempo del tema con un punto que late al ritmo
+function tempoBadge(song, big = false) {
+  if (!song) return '';
+  const d = song.data, bpm = Number(d.bpm);
+  const bits = [bpm ? `<span><span class="beat" style="--beat:${(60 / bpm).toFixed(3)}s"></span>${bpm} BPM</span>` : '<span class="muted">Tempo sin definir</span>'];
+  if (d.key) bits.push(`<span>${esc(d.key)}</span>`); if (d.tuning) bits.push(`<span>${esc(d.tuning)}</span>`);
+  return `<div class="tempo${big ? ' big' : ''}">${bits.join('')}</div>`;
+}
 function recRow(r, showSong = false) {
   const song = showSong ? get(r.data.song_id) : null;
   const pend = REMOTE && !r.data.uploaded;
-  return `<button class="li" data-a="play" data-id="${r.id}">
-    <span class="icon" aria-hidden="true">▶</span>
-    <span class="grow"><span class="t">${r.data.ref ? '★ ' : ''}${esc(r.data.name || 'Grabación')}</span><br>
+  return `<div class="li rec-row">
+    <button class="icon qplay" data-a="qplay" data-id="${r.id}" aria-label="Reproducir ${esc(r.data.name || 'grabación')}">${QP.id === r.id && QP.audio && !QP.audio.paused ? '❚❚' : '▶'}</button>
+    <button class="grow rec-open" data-a="play" data-id="${r.id}"><span class="t">${r.data.ref ? '★ ' : ''}${esc(r.data.name || 'Grabación')}</span><br>
     <span class="s">${showSong ? esc(song ? song.data.title : 'Sin asignar') + ' · ' : ''}${fmtStamp(r.data.recorded_at)} · ${mmss(r.data.duration)} · ${esc(whoName(r.created_by))}</span>
-    ${(r.data.tags || []).length || pend ? `<span class="chips" style="margin-top:4px">${(r.data.tags || []).map(t => `<span class="tag acc">${esc(t)}</span>`).join('')}${pend ? `<span class="tag warn">Pendiente de subir</span>` : ''}</span>` : ''}</span></button>`;
+    ${(r.data.tags || []).length || pend ? `<span class="chips" style="margin-top:4px">${(r.data.tags || []).map(t => `<span class="tag acc">${esc(t)}</span>`).join('')}${pend ? `<span class="tag warn">Pendiente de subir</span>` : ''}</span>` : ''}</span></button><span class="chev">›</span></div>`;
 }
 
 /* -- Temas -- */
@@ -322,7 +330,7 @@ VIEWS.song = v => {
   const s = get(v.id);
   if (!s) return topBar('Tema no encontrado') + `<div class="card empty">Puede que alguien lo haya borrado.</div>`;
   const tab = v.tab || 'general';
-  const tabs = [['general', 'General'], ...INST.filter(d => instOn(s, d)).map(d => [d.k, d.short]), ['log', 'Bitácora'], ['recs', 'Grabaciones']];
+  const tabs = [['general', 'General'], ['recs', 'Grabaciones'], ...INST.filter(d => instOn(s, d)).map(d => [d.k, d.short]), ['log', 'Bitácora']];
   let h = topBar(s.data.title || 'Sin título');
   h += `<div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button data-a="songTab" data-v="${k}" aria-current="${k === tab}">${esc(l)}${k === 'recs' ? ' · ' + all('recording').filter(r => r.data.song_id === s.id).length : ''}</button>`).join('')}</div>`;
   if (tab === 'general') h += songGeneral(s);
@@ -346,6 +354,9 @@ function songGeneral(s) {
   <label class="field" style="grid-column:span 2"><span>Afinación</span><input data-f="${id}|tuning" value="${esc(d.tuning)}" placeholder="Estándar, drop D…"></label></div>
   <div class="row"><button class="btn sm" data-a="metro" data-id="${id}">${Metro.on ? '■ Parar metrónomo' : '▶ Metrónomo'}</button><button class="btn sm" data-a="tap" data-id="${id}">Tap tempo</button><span class="small muted" id="tapinfo"></span></div>
   </div>`;
+  const lastRecs = recsOf(r => r.data.song_id === id).slice(0, 3);
+  h += `<div class="sec"><div class="row between"><div class="label">Últimas grabaciones</div>${lastRecs.length ? `<button class="btn sm ghost" data-a="songTab" data-v="recs">Ver todas</button>` : ''}</div>
+    ${lastRecs.length ? `<div class="list">${lastRecs.map(r => recRow(r)).join('')}</div>` : '<p class="small muted">Todavía no hay grabaciones de este tema.</p>'}</div>`;
   h += `<div class="sec"><div class="label">Instrumentos en este tema</div><div class="card">
     ${INST.filter(x => x.optional).map(x => `<label class="switch"><span>${esc(x.name)}</span><input type="checkbox" data-f="${id}|inst.${x.k}.on" data-r ${instOn(s, x) ? 'checked' : ''}></label>`).join('')}</div></div>`;
   const parts = d.parts || [];
@@ -436,6 +447,7 @@ VIEWS.rehearsal = v => {
     h += `<div class="card hl stack"><div class="row between"><span class="label" style="color:var(--accent)">Ensayo en curso</span><button class="btn sm" data-a="closeReh" data-id="${id}">Terminar ensayo</button></div>
       <div class="label">Tema actual</div>
       <div class="chips">${songs.map(s => `<button class="chip" data-a="curSong" data-id="${s.id}" aria-pressed="${s.id === d.current_song}">${esc(s.data.title)}</button>`).join('')}</div>
+      ${cur ? `<div class="curbox"><div class="curt">${esc(cur.data.title)}</div>${tempoBadge(cur, true)}</div>` : ''}
       <select data-ch="rehAddCur" aria-label="Añadir tema"><option value="">+ Añadir tema y ponerlo como actual…</option>${songsSorted().filter(s => !(d.songs || []).includes(s.id)).map(s => `<option value="${s.id}">${esc(s.data.title)}</option>`).join('')}</select>
       ${cur ? prevNotes(r, cur.id) : ''}
       <button class="btn recb block" data-a="recReh">● Grabar${cur ? ' «' + esc(cur.data.title) + '»' : ''}</button></div>`;
@@ -738,7 +750,7 @@ const ACT = {
     await setField(el.dataset.id, ['open'], true, { render: true }); toast('Ensayo en marcha. Las grabaciones se guardarán aquí.');
   },
   closeReh: el => { setField(el.dataset.id, ['open'], false, { render: true }); toast('Ensayo terminado'); },
-  curSong: el => setField(V.id, ['current_song'], el.dataset.id, { render: true }),
+  curSong: el => { setField(V.id, ['current_song'], el.dataset.id, { render: true }); const sg = get(el.dataset.id); if (sg) toast('Tema actual: ' + sg.data.title); },
   toggleIn: el => {
     const it = get(el.dataset.id); const k = el.dataset.k; const arr = (it.data[k] || []).slice(); const v = el.dataset.v; const i = arr.indexOf(v);
     if (i >= 0) arr.splice(i, 1); else arr.push(v); setField(it.id, [k], arr, { render: true });
@@ -822,7 +834,12 @@ document.addEventListener('submit', async e => {
 });
 const CHANGE = {
   rehAdd: el => { if (!el.value) return; const r = get(V.id); setField(r.id, ['songs'], (r.data.songs || []).concat([el.value]), { render: true }); },
-  rehAddCur: async el => { if (!el.value) return; const r = get(V.id); await setField(r.id, ['songs'], (r.data.songs || []).concat([el.value])); await setField(r.id, ['current_song'], el.value, { render: true }); },
+  rehAddCur: async el => {
+    const sid = el.value; if (!sid) return; el.blur(); const r = get(V.id); const sg = get(sid);
+    await setField(r.id, ['songs'], [...new Set((r.data.songs || []).concat([sid]))]);
+    await setField(r.id, ['current_song'], sid, { render: true });
+    toast('Tema actual: ' + (sg ? sg.data.title : ''));
+  },
   slAdd: el => { if (!el.value) return; const s = get(V.id); setField(s.id, ['entries'], (s.data.entries || []).concat([{ k: 's', id: el.value }]), { render: true }); }
 };
 
@@ -830,6 +847,7 @@ const CHANGE = {
 const R = { state: 'idle', ctx: {}, mr: null, chunks: [], stream: null, t0: 0, dur: 0, markers: [], raf: 0, actx: null, lock: null, tick: null, blob: null, tags: [], mime: '' };
 async function wake() { try { return await navigator.wakeLock.request('screen'); } catch (e) { return null; } }
 function openRecorder(ctx = {}) {
+  qpStop();
   const open = openRehearsal();
   if (open && !ctx.gig_id) { ctx.rehearsal_id = ctx.rehearsal_id || open.id; if (!ctx.song_id) ctx.song_id = open.data.current_song || null; }
   R.ctx = ctx; R.state = 'ready'; R.tags = []; R.markers = []; R.blob = null;
@@ -844,13 +862,14 @@ function drawRec() {
   const songSel = `<label class="field"><span>Tema</span><select id="recSong"><option value="">Sin asignar</option>${songsSorted().map(s => `<option value="${s.id}" ${s.id === R.ctx.song_id ? 'selected' : ''}>${esc(s.data.title)}</option>`).join('')}</select></label>`;
   if (R.state === 'ready') {
     recEl.innerHTML = `<div class="row between"><h2>Grabar</h2><button class="btn ghost sm" data-a="recClose">Cerrar</button></div>
-      ${songSel}<p class="small muted">${esc(recCtxText())}</p>
+      ${songSel}${tempoBadge(song, true)}<p class="small muted">${esc(recCtxText())}</p>
       <div style="flex:1;display:grid;place-items:center"><button class="bigrec" data-a="recStart">GRABAR</button></div>
       <p class="small muted" style="text-align:center">Deja el móvil quieto y lejos del amplificador para que no sature.</p>`;
-    $('#recSong').addEventListener('change', e => { R.ctx.song_id = e.target.value || null; });
+    $('#recSong').addEventListener('change', e => { R.ctx.song_id = e.target.value || null; drawRec(); });
   } else if (R.state === 'rec') {
     const parts = (song && song.data.parts || []).map(p => p.name).filter(Boolean);
     recEl.innerHTML = `<div class="row between"><span class="tag rec">● GRABANDO</span><span class="small muted">${esc(song ? song.data.title : 'Sin asignar')}</span></div>
+      ${tempoBadge(song, true)}
       <div class="timer" id="recT">${mmss((Date.now() - R.t0) / 1000)}</div>
       <div class="meter"><i id="recM"></i></div>
       <div class="stack"><button class="btn block" data-a="recMark" style="min-height:56px">＋ Marcador aquí</button>
@@ -940,9 +959,29 @@ const REC_ACT = {
 };
 window.addEventListener('beforeunload', e => { if (R.state === 'rec' || R.state === 'done') { e.preventDefault(); e.returnValue = ''; } });
 
+/* ---------- reproducción rápida desde las listas ---------- */
+const QP = { id: null, audio: null };
+function qpIcons() { $$('[data-a="qplay"]').forEach(b => { b.textContent = QP.id === b.dataset.id && QP.audio && !QP.audio.paused ? '❚❚' : '▶'; }); }
+function qpStop() { if (QP.audio) { QP.audio.pause(); QP.audio = null; } QP.id = null; qpIcons(); }
+ACT.qplay = async el => {
+  const id = el.dataset.id;
+  if (QP.id === id && QP.audio) { if (QP.audio.paused) QP.audio.play().catch(() => {}); else QP.audio.pause(); setTimeout(qpIcons, 30); return; }
+  qpStop(); const r = get(id); if (!r) return;
+  QP.id = id; el.textContent = '…';
+  let url = null;
+  try { url = await getUrl(r.data.blob || r.id, r.data.path); } catch (e) {}
+  if (QP.id !== id) return;
+  if (!url) { QP.id = null; qpIcons(); return toast(REMOTE && !navigator.onLine ? 'Sin conexión: este audio aún no está en el móvil' : 'No se ha podido cargar el audio'); }
+  QP.audio = new Audio(url);
+  QP.audio.addEventListener('ended', () => { QP.id = null; QP.audio = null; qpIcons(); });
+  QP.audio.addEventListener('pause', qpIcons); QP.audio.addEventListener('play', qpIcons);
+  QP.audio.play().catch(() => { toast('Este móvil no puede reproducir el formato de esta grabación'); qpStop(); });
+};
+
 /* ---------- reproductor ---------- */
 const P = { audio: null, id: null, A: null, B: null, raf: 0 };
 async function openPlayer(id) {
+  qpStop();
   const r = get(id); if (!r) return;
   P.id = id; P.A = P.B = null;
   const sh = sheet(`<div id="plWrap" class="player"><p class="muted">Cargando audio…</p></div>`, { onClose: () => { if (P.audio) { P.audio.pause(); P.audio = null; } cancelAnimationFrame(P.raf); }, refresh: () => drawPlayerMeta() });

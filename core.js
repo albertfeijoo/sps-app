@@ -92,8 +92,10 @@ const settings = () => all('settings')[0] || null;
 let onChange = () => {};          // la interfaz se registra aquí
 function persist(it) { DB.put('items', it).catch(() => {}); }
 
+const recentLocal = {};   // id → momento del último cambio hecho en este móvil
 async function enqueue(op) {
   if (!REMOTE) return;
+  if (op.id) recentLocal[op.id] = Date.now();
   try { const seq = await DB.put('outbox', op); op.seq = seq; } catch (e) { op.seq = Date.now() + Math.random(); }
   S.outbox.push(op);
   scheduleFlush(300);
@@ -273,12 +275,18 @@ async function pullAccounts() {
   if (data) { S.accounts = data; DB.put('meta', data, 'accounts').catch(() => {}); }
 }
 let channel = null;
+const refetchT = {};
 function subscribe() {
   if (channel) return;
   channel = sb.channel('sps-items')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, p => {
       if (p.eventType === 'DELETE') { const id = p.old && p.old.id; if (id) { S.items.delete(id); DB.del('items', id).catch(() => {}); } }
-      else { const row = reapplyPending(p.new); S.items.set(row.id, row); persist(row); if (row.type === 'member') pullAccounts(); }
+      else {
+        // Si acabamos de cambiar este elemento aquí, el eco de la nube puede llegar desordenado:
+        // en vez de aplicarlo tal cual, se vuelve a leer en un momento.
+        if (recentLocal[p.new.id] && Date.now() - recentLocal[p.new.id] < 4000) { clearTimeout(refetchT[p.new.id]); refetchT[p.new.id] = setTimeout(() => { if (!S.outbox.some(o => o.id === p.new.id)) refetch(p.new.id); }, 1500); return; }
+        const row = reapplyPending(p.new); S.items.set(row.id, row); persist(row); if (row.type === 'member') pullAccounts();
+      }
       onChange('remote');
     })
     .subscribe();
