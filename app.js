@@ -369,7 +369,7 @@ function songGeneral(s) {
   h += `<div class="sec"><label class="field"><span>Nota para el modo escenario</span><textarea data-f="${id}|stage_note" style="min-height:70px" placeholder="Ej.: entra la batería sola, 4 golpes de charles">${esc(d.stage_note)}</textarea></label>
     <label class="field"><span>Notas generales</span><textarea data-f="${id}|notes">${esc(d.notes)}</textarea></label></div>`;
   h += `<div class="sec"><p class="small muted">${st.count ? `Ensayado ${st.count} ${st.count === 1 ? 'vez' : 'veces'} · último: ${fmtDay(st.last)}` : 'Aún no aparece en ningún ensayo.'}<br>Creado por ${esc(whoName(s.created_by))} · última edición: ${esc(whoName(s.updated_by))}, ${fmtStamp(s.updated_at)}</p>
-    <div class="row"><button class="btn recb" data-a="recHere">● Grabar en este tema</button><button class="btn" data-a="history" data-id="${id}">Historial de versiones</button><button class="btn danger" data-a="trashIt" data-id="${id}">Papelera</button></div></div>`;
+    <div class="row"><button class="btn recb" data-a="recHere">● Grabar en este tema</button><button class="btn" data-a="shareSong" data-id="${id}">Compartir</button><button class="btn" data-a="history" data-id="${id}">Historial de versiones</button><button class="btn danger" data-a="trashIt" data-id="${id}">Papelera</button></div></div>`;
   return h;
 }
 function instPane(s, def) {
@@ -554,6 +554,7 @@ VIEWS.band = () => {
       <button class="li" data-a="open" data-v="trash"><span class="grow"><span class="t">Papelera</span><br><span class="s">${trash().length} elemento(s)</span></span><span class="chev">›</span></button>
       <button class="li" data-a="open" data-v="activity"><span class="grow"><span class="t">Actividad</span><br><span class="s">Quién ha hecho qué y cuándo</span></span><span class="chev">›</span></button>
       <button class="li" data-a="bandSettings"><span class="grow"><span class="t">Ajustes del grupo</span><br><span class="s">Nombre, etiquetas de grabación, material</span></span><span class="chev">›</span></button>
+      ${needConv().length ? `<button class="li" data-a="convertAll"><span class="grow"><span class="t">Arreglar grabaciones para iPhone</span><br><span class="s">${needConv().length} grabación(es) en un formato que el iPhone no reproduce bien</span></span><span class="chev">›</span></button>` : ''}
       <button class="li" data-a="backup"><span class="grow"><span class="t">Copia de seguridad</span><br><span class="s">Descargar todos los datos y audios</span></span><span class="chev">›</span></button></div></div>`;
   }
   h += `<div class="sec"><div class="label">Sincronización</div><div class="card stack">${REMOTE ? `<div class="row between"><span id="pendinfo">${pendText()}</span>${syncBadge()}</div><button class="btn sm" data-a="syncNow" style="align-self:flex-start">Sincronizar ahora</button>` : `<p class="small muted">Modo prueba: no hay nube configurada. Los datos solo están en este móvil.</p>`}</div></div>`;
@@ -893,17 +894,54 @@ function drawRec() {
     $('#recTagF').addEventListener('submit', e => { e.preventDefault(); const v = $('#recTagIn').value.trim(); if (v && !R.tags.includes(v)) { R.tags.push(v); const b = document.createElement('button'); b.className = 'chip'; b.dataset.a = 'recTag'; b.dataset.v = v; b.setAttribute('aria-pressed', 'true'); b.textContent = v; $('#recTags').appendChild(b); } $('#recTagIn').value = ''; });
   }
 }
-const pickMime = () => ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm', 'audio/ogg;codecs=opus'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) || '';
-const extOf = m => (m.includes('mp4') ? 'm4a' : m.includes('ogg') ? 'ogg' : 'webm');
+const pickMime = () => ['audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) || '';
+const extOf = m => (m.includes('mpeg') || m.includes('mp3') ? 'mp3' : m.includes('mp4') || m.includes('aac') ? 'm4a' : m.includes('ogg') ? 'ogg' : 'webm');
+// iPhone: tras usar el micro, Safari manda el sonido al altavoz del oído (muy bajo). Esto lo devuelve al altavoz normal.
+function audioMode(kind) { try { if (navigator.audioSession) navigator.audioSession.type = kind; } catch (e) {} }
+
+/* ---------- conversión a MP3 (se oye en Android, iPhone y ordenador) ---------- */
+const LAME_URL = 'https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js';
+let lameP = null;
+function loadLame() {
+  if (window.lamejs) return Promise.resolve();
+  if (!lameP) lameP = new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = LAME_URL; sc.onload = () => window.lamejs ? res() : rej(new Error('lamejs')); sc.onerror = () => { lameP = null; rej(new Error('lamejs')); }; document.head.appendChild(sc); });
+  return lameP;
+}
+setTimeout(() => loadLame().catch(() => {}), 4000);   // se precarga para poder convertir sin conexión
+const isMp3 = m => /mpeg|mp3/.test(m || '');
+// Decodifica, iguala el volumen (pico a -1 dB) y codifica en MP3 mono 64 kbps
+async function toMp3(blob, onProgress) {
+  await loadLame();
+  const ab = await blob.arrayBuffer();
+  const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const ctx = new Ctx(1, 1, 22050);
+  const buf = await new Promise((res, rej) => { const pr = ctx.decodeAudioData(ab, res, rej); if (pr && pr.then) pr.then(res, rej); });
+  if (buf.duration > 20 * 60) throw new Error('Demasiado larga para convertir en el móvil');
+  const n = buf.length, ch = buf.numberOfChannels, mono = new Float32Array(n);
+  for (let c = 0; c < ch; c++) { const d = buf.getChannelData(c); for (let i = 0; i < n; i++) mono[i] += d[i] / ch; }
+  let peak = 0; for (let i = 0; i < n; i++) { const v = Math.abs(mono[i]); if (v > peak) peak = v; }
+  const gain = peak > 0 ? Math.min(0.89 / peak, 8) : 1;
+  const enc = new lamejs.Mp3Encoder(1, buf.sampleRate, 64), out = [], BLOCK = 1152, pcm = new Int16Array(BLOCK);
+  for (let i = 0; i < n; i += BLOCK) {
+    const len = Math.min(BLOCK, n - i);
+    for (let j = 0; j < len; j++) { const v = Math.max(-1, Math.min(1, mono[i + j] * gain)); pcm[j] = v < 0 ? v * 0x8000 : v * 0x7FFF; }
+    const mp3 = enc.encodeBuffer(len === BLOCK ? pcm : pcm.subarray(0, len)); if (mp3.length) out.push(new Uint8Array(mp3));
+    if (i % (BLOCK * 400) === 0) { if (onProgress) onProgress(i / n); await new Promise(r => setTimeout(r, 0)); }
+  }
+  const end = enc.flush(); if (end.length) out.push(new Uint8Array(end));
+  return { blob: new Blob(out, { type: 'audio/mpeg' }), duration: buf.duration };
+}
 function stopStream() {
   cancelAnimationFrame(R.raf); clearInterval(R.tick);
   if (R.stream) R.stream.getTracks().forEach(t => t.stop()); R.stream = null;
   if (R.actx) { R.actx.close().catch(() => {}); R.actx = null; }
   if (R.lock) { R.lock.release().catch(() => {}); R.lock = null; }
+  audioMode('playback');
 }
 const REC_ACT = {
   async recStart() {
     if (!navigator.mediaDevices || !window.MediaRecorder) { toast('Este navegador no permite grabar audio'); return; }
+    audioMode('play-and-record');
     try { R.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); }
     catch (e) { toast('Sin acceso al micrófono. Revisa los permisos del navegador.'); return; }
     R.mime = pickMime();
@@ -936,6 +974,9 @@ const REC_ACT = {
   recStop() { R.dur = (Date.now() - R.t0) / 1000; if (R.mr && R.mr.state !== 'inactive') R.mr.stop(); },
   recTag(el) { const v = el.dataset.v; const i = R.tags.indexOf(v); if (i >= 0) R.tags.splice(i, 1); else R.tags.push(v); el.setAttribute('aria-pressed', i < 0); },
   async recSave() {
+    const btn = $('[data-a="recSave"]'); if (btn) { btn.disabled = true; btn.textContent = 'Preparando audio…'; }
+    try { const c = await toMp3(R.blob, f => { if (btn) btn.textContent = `Preparando audio… ${Math.round(f * 100)} %`; }); R.blob = c.blob; }
+    catch (e) { console.warn('Sin conversión a MP3', e); }
     const id = uuid(), mime = R.blob.type || 'audio/webm', path = `audio/${id}.${extOf(mime)}`;
     const song_id = R.ctx.song_id || null;
     const data = {
@@ -972,10 +1013,99 @@ ACT.qplay = async el => {
   try { url = await getUrl(r.data.blob || r.id, r.data.path); } catch (e) {}
   if (QP.id !== id) return;
   if (!url) { QP.id = null; qpIcons(); return toast(REMOTE && !navigator.onLine ? 'Sin conexión: este audio aún no está en el móvil' : 'No se ha podido cargar el audio'); }
+  audioMode('playback');
   QP.audio = new Audio(url);
   QP.audio.addEventListener('ended', () => { QP.id = null; QP.audio = null; qpIcons(); });
   QP.audio.addEventListener('pause', qpIcons); QP.audio.addEventListener('play', qpIcons);
   QP.audio.play().catch(() => { toast('Este móvil no puede reproducir el formato de esta grabación'); qpStop(); });
+};
+
+/* ---------- convertir grabaciones antiguas a MP3 ---------- */
+const needConv = () => all('recording').filter(r => !isMp3(r.data.mime) && r.data.path);
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+ACT.convertAll = async () => {
+  const list = needConv();
+  if (isIOS()) return sheet(`<h3>Hazlo desde Android o desde el ordenador</h3><p class="muted">El iPhone no sabe leer el formato de esas grabaciones, así que no puede convertirlas. Abre la app en un Android o en el navegador del ordenador, entra como Shaki y pulsa este mismo botón.</p><button class="btn" data-a="close">Entendido</button>`);
+  if (!await confirmBox(`¿Convertir ${list.length} grabación(es) a MP3?`, 'Convertir', false, '<p class="small muted">Se oirán en todos los móviles y con el volumen igualado. Deja la app abierta y con conexión hasta que termine.</p>')) return;
+  const sh = sheet(`<h3>Convirtiendo grabaciones</h3><p id="cvInfo" class="muted">Empezando…</p><div class="meter"><i id="cvBar"></i></div>`);
+  let ok = 0, fail = 0;
+  for (let k = 0; k < list.length; k++) {
+    const r = list[k], key = r.data.blob || r.id, oldPath = r.data.path;
+    $('#cvInfo', sh).textContent = `${k + 1} de ${list.length}: ${r.data.name || 'Grabación'}`;
+    $('#cvBar', sh).style.width = (k / list.length * 100) + '%';
+    try {
+      const src = await getBlob(key, oldPath); if (!src) throw new Error('sin audio');
+      const { blob } = await toMp3(src);
+      const path = `audio/${r.id}.mp3`;
+      blobCache.delete(key); const u = urlCache.get(key); if (u) { URL.revokeObjectURL(u); urlCache.delete(key); }
+      await setField(r.id, ['uploaded'], !REMOTE); await setField(r.id, ['mime'], 'audio/mpeg');
+      await setField(r.id, ['size'], blob.size); await setField(r.id, ['path'], path);
+      await storeFile(key, blob, path, r.id);
+      if (REMOTE && sb && oldPath !== path) sb.storage.from('media').remove([oldPath]).catch(() => {});
+      ok++;
+    } catch (e) { console.warn('No convertida', r.id, e); fail++; }
+  }
+  closeSheet(); onChange('local');
+  toast(fail ? `${ok} convertidas, ${fail} no se han podido convertir` : `${ok} grabaciones convertidas`);
+};
+
+/* ---------- compartir ---------- */
+async function shareOut({ title, text, files }) {
+  files = (files || []).filter(Boolean);
+  if (navigator.share) {
+    const payload = { title, text };
+    if (files.length && navigator.canShare && navigator.canShare({ files })) payload.files = files;
+    try { await navigator.share(payload); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  copyText(text);
+  for (const f of files) { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; a.click(); }
+  if (files.length) toast('Texto copiado y audio descargado');
+}
+const fileName = (s, ext) => (s || 'archivo').replace(/[\\/:*?"<>|]/g, '-').slice(0, 80) + '.' + ext;
+async function recFile(r) {
+  const b = await getBlob(r.data.blob || r.id, r.data.path).catch(() => null);
+  return b ? new File([b], fileName(r.data.name, extOf(b.type || r.data.mime || '')), { type: b.type || r.data.mime || 'audio/mpeg' }) : null;
+}
+function songText(s, opt) {
+  const d = s.data, L = [];
+  L.push(`🎵 ${d.title || 'Tema'} · ${(settings() && settings().data.band_name) || 'San Peregrino Squirt'}`);
+  if (opt.general) {
+    const meta = [d.bpm ? d.bpm + ' BPM' : '', d.sig, d.key, d.tuning, d.duration].filter(Boolean).join(' · ');
+    if (meta) L.push(meta);
+    if (d.status) L.push('Estado: ' + d.status);
+    if ((d.parts || []).length) L.push('', 'ESTRUCTURA', ...(d.parts || []).map(p => `- ${p.name}${p.bars ? ' (' + p.bars + ' comp.)' : ''}${p.note ? ': ' + p.note : ''}`));
+    if (d.notes) L.push('', 'NOTAS', d.notes);
+  }
+  for (const def of INST) {
+    if (!opt[def.k] || !instOn(s, def)) continue;
+    const x = deepGet(d, ['inst', def.k]) || {}; const m = get(x.member);
+    const rows = def.fields.map(([f, label]) => x[f] ? `${label}:\n${x[f]}` : '').filter(Boolean);
+    if (rows.length) L.push('', `${def.name.toUpperCase()}${m ? ' · ' + mName(m) : ''}`, ...rows);
+  }
+  return L.join('\n');
+}
+ACT.shareSong = el => {
+  const s = get(el.dataset.id); if (!s) return;
+  const recs = recsOf(r => r.data.song_id === s.id);
+  const ref = recs.find(r => r.data.ref) || recs[0];
+  const insts = INST.filter(d => instOn(s, d));
+  const sh = sheet(`<h3>Compartir «${esc(s.data.title)}»</h3>
+    <div class="field"><span>Qué incluir</span>
+    <label class="switch"><span>Datos, estructura y notas</span><input type="checkbox" id="shGen" checked></label>
+    ${insts.map(d => `<label class="switch"><span>${esc(d.name)}${d.k === 'voice' ? ' (letra)' : ''}</span><input type="checkbox" data-shi="${d.k}" ${d.k === 'voice' ? 'checked' : ''}></label>`).join('')}</div>
+    ${recs.length ? `<label class="field"><span>Adjuntar grabación</span><select id="shRec"><option value="">Ninguna</option>${recs.map(r => `<option value="${r.id}" ${r === ref ? 'selected' : ''}>${r.data.ref ? '★ ' : ''}${esc(r.data.name)} · ${esc(fmtStamp(r.data.recorded_at))}</option>`).join('')}</select></label>` : ''}
+    <button class="btn pri" id="shGo">Compartir</button>
+    <p class="small muted">Se abrirá el menú del móvil para elegir WhatsApp, correo, Telegram… En algunos casos WhatsApp envía el audio sin el texto; si pasa, compártelo en dos veces.</p>`);
+  $('#shGo', sh).onclick = async () => {
+    const opt = { general: $('#shGen', sh).checked }; $$('[data-shi]', sh).forEach(c => { opt[c.dataset.shi] = c.checked; });
+    const rid = $('#shRec', sh) ? $('#shRec', sh).value : '';
+    $('#shGo', sh).disabled = true; $('#shGo', sh).textContent = 'Preparando…';
+    const file = rid ? await recFile(get(rid)) : null;
+    if (rid && !file) toast('No se ha podido cargar el audio; se comparte solo el texto');
+    closeSheet();
+    await shareOut({ title: s.data.title, text: songText(s, opt), files: [file] });
+  };
 };
 
 /* ---------- reproductor ---------- */
@@ -988,6 +1118,7 @@ async function openPlayer(id) {
   let url = null;
   try { url = await getUrl(r.data.blob || r.id, r.data.path); } catch (e) { console.warn(e); }
   if (!sheets.length || P.id !== id) return;
+  audioMode('playback');
   P.audio = url ? new Audio(url) : null;
   if (P.audio) { P.audio.preload = 'auto'; P.audio.addEventListener('timeupdate', loopCheck); P.audio.addEventListener('ended', () => updPlay()); P.audio.addEventListener('loadedmetadata', () => updPlay()); }
   $('#plWrap', sh).innerHTML = `${url ? `<div class="seek"><input type="range" id="plSeek" min="0" max="1000" value="0" aria-label="Posición"><div class="marks" id="plMarks"></div></div>
@@ -1026,7 +1157,7 @@ function drawPlayerMeta() {
     <label class="field"><span>Parte</span><select data-f="${id}|part"><option value="">—</option>${[...new Set([...parts, d.part].filter(Boolean))].map(p => `<option ${p === d.part ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
     <label class="field"><span>Nota</span><textarea data-f="${id}|note" style="min-height:70px">${esc(d.note)}</textarea></label>
     <label class="switch"><span>★ Toma de referencia del tema</span><input type="checkbox" data-f="${id}|ref" ${d.ref ? 'checked' : ''}></label>
-    <div class="row"><button class="btn ghost" data-a="plDownload">Descargar</button><button class="btn danger" data-a="trashIt" data-id="${id}">Papelera</button></div></div>`;
+    <div class="row"><button class="btn" data-a="plShare">Compartir</button><button class="btn ghost" data-a="plDownload">Descargar</button><button class="btn danger" data-a="trashIt" data-id="${id}">Papelera</button></div></div>`;
 }
 const PLAY_ACT = {
   plPlay() { if (!P.audio) return; if (P.audio.paused) P.audio.play().catch(() => toast('No se puede reproducir este formato en este móvil')); else P.audio.pause(); setTimeout(updPlay, 50); },
@@ -1041,6 +1172,11 @@ const PLAY_ACT = {
     updPlay();
   },
   plTag(el) { const r = get(P.id); const arr = (r.data.tags || []).slice(); const i = arr.indexOf(el.dataset.v); if (i >= 0) arr.splice(i, 1); else arr.push(el.dataset.v); setField(r.id, ['tags'], arr); el.setAttribute('aria-pressed', i < 0); },
+  async plShare() {
+    const r = get(P.id); const f = await recFile(r); if (!f) return toast('Audio no disponible');
+    const song = get(r.data.song_id);
+    await shareOut({ title: r.data.name, text: `${song ? song.data.title + ' · ' : ''}${r.data.name} (${fmtStamp(r.data.recorded_at)})`, files: [f] });
+  },
   async plDownload() {
     const r = get(P.id); const b = await getBlob(r.data.blob || r.id, r.data.path).catch(() => null); if (!b) return toast('Audio no disponible');
     const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = (r.data.name || 'grabacion').replace(/[\\/:*?"<>|]/g, '-') + '.' + extOf(r.data.mime || ''); a.click();
