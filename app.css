@@ -212,3 +212,5 @@ details summary{font-weight:600}
 .rec-row{padding-block:8px}
 .rec-row .qplay{width:44px;height:44px;border-radius:50%;background:var(--accent);color:var(--accent-ink);border:0;font-size:1rem}
 .rec-open{border:0;background:none;text-align:left;padding:0;color:inherit;font:inherit}
+
+.rec-row .shr{width:40px;height:40px;border-radius:50%;color:var(--accent);background:transparent;border:1px solid var(--line)}

@@ -157,6 +157,7 @@ document.addEventListener('change', e => {
   if (el.dataset.f) return commitField(el.dataset.f, el);
   if (el.dataset.ch) return CHANGE[el.dataset.ch] && CHANGE[el.dataset.ch](el);
   if (el.dataset.img) return addImage(el);
+  if (el.dataset.master) return uploadMaster(el);
 });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushFields(); });
 
@@ -301,7 +302,7 @@ function recRow(r, showSong = false) {
     <button class="icon qplay" data-a="qplay" data-id="${r.id}" aria-label="Reproducir ${esc(r.data.name || 'grabación')}">${QP.id === r.id && QP.audio && !QP.audio.paused ? '❚❚' : '▶'}</button>
     <button class="grow rec-open" data-a="play" data-id="${r.id}"><span class="t">${r.data.ref ? '★ ' : ''}${esc(r.data.name || 'Grabación')}</span><br>
     <span class="s">${showSong ? esc(song ? song.data.title : 'Sin asignar') + ' · ' : ''}${fmtStamp(r.data.recorded_at)} · ${mmss(r.data.duration)} · ${esc(whoName(r.created_by))}</span>
-    ${(r.data.tags || []).length || pend ? `<span class="chips" style="margin-top:4px">${(r.data.tags || []).map(t => `<span class="tag acc">${esc(t)}</span>`).join('')}${pend ? `<span class="tag warn">Pendiente de subir</span>` : ''}</span>` : ''}</span></button><span class="chev">›</span></div>`;
+    ${(r.data.tags || []).length || pend ? `<span class="chips" style="margin-top:4px">${(r.data.tags || []).map(t => `<span class="tag acc">${esc(t)}</span>`).join('')}${pend ? `<span class="tag warn">Pendiente de subir</span>` : ''}</span>` : ''}</span></button><button class="icon shr" data-a="shareRec" data-id="${r.id}" aria-label="Compartir audio">${SHARE_ICON}</button></div>`;
 }
 
 /* -- Temas -- */
@@ -342,7 +343,7 @@ VIEWS.song = v => {
 function songGeneral(s) {
   const d = s.data, id = s.id, st = songStats(id);
   const opt = (arr, val) => arr.map(x => `<option ${x === val ? 'selected' : ''}>${esc(x)}</option>`).join('');
-  let h = `<div class="stack">
+  let h = masterBlock(s).replace('class="sec"', 'class="sec" style="margin-top:0;margin-bottom:18px"') + `<div class="stack">
   <label class="field"><span>Título</span><input data-f="${id}|title" value="${esc(d.title)}"></label>
   <div class="grid2"><label class="field"><span>Autor o compositor</span><input data-f="${id}|author" value="${esc(d.author)}"></label>
   <label class="field"><span>Origen</span><select data-f="${id}|origin">${opt(['Propia', 'Versión'], d.origin || 'Propia')}</select></label></div>
@@ -354,7 +355,7 @@ function songGeneral(s) {
   <label class="field" style="grid-column:span 2"><span>Afinación</span><input data-f="${id}|tuning" value="${esc(d.tuning)}" placeholder="Estándar, drop D…"></label></div>
   <div class="row"><button class="btn sm" data-a="metro" data-id="${id}">${Metro.on ? '■ Parar metrónomo' : '▶ Metrónomo'}</button><button class="btn sm" data-a="tap" data-id="${id}">Tap tempo</button><span class="small muted" id="tapinfo"></span></div>
   </div>`;
-  const lastRecs = recsOf(r => r.data.song_id === id).slice(0, 3);
+  const lastRecs = recsOf(r => r.data.song_id === id && !r.data.master).slice(0, 3);
   h += `<div class="sec"><div class="row between"><div class="label">Últimas grabaciones</div>${lastRecs.length ? `<button class="btn sm ghost" data-a="songTab" data-v="recs">Ver todas</button>` : ''}</div>
     ${lastRecs.length ? `<div class="list">${lastRecs.map(r => recRow(r)).join('')}</div>` : '<p class="small muted">Todavía no hay grabaciones de este tema.</p>'}</div>`;
   h += `<div class="sec"><div class="label">Instrumentos en este tema</div><div class="card">
@@ -369,7 +370,7 @@ function songGeneral(s) {
   h += `<div class="sec"><label class="field"><span>Nota para el modo escenario</span><textarea data-f="${id}|stage_note" style="min-height:70px" placeholder="Ej.: entra la batería sola, 4 golpes de charles">${esc(d.stage_note)}</textarea></label>
     <label class="field"><span>Notas generales</span><textarea data-f="${id}|notes">${esc(d.notes)}</textarea></label></div>`;
   h += `<div class="sec"><p class="small muted">${st.count ? `Ensayado ${st.count} ${st.count === 1 ? 'vez' : 'veces'} · último: ${fmtDay(st.last)}` : 'Aún no aparece en ningún ensayo.'}<br>Creado por ${esc(whoName(s.created_by))} · última edición: ${esc(whoName(s.updated_by))}, ${fmtStamp(s.updated_at)}</p>
-    <div class="row"><button class="btn recb" data-a="recHere">● Grabar en este tema</button><button class="btn" data-a="shareSong" data-id="${id}">Compartir</button><button class="btn" data-a="history" data-id="${id}">Historial de versiones</button><button class="btn danger" data-a="trashIt" data-id="${id}">Papelera</button></div></div>`;
+    <div class="row"><button class="btn recb" data-a="recHere">● Grabar en este tema</button><button class="btn" data-a="history" data-id="${id}">Historial de versiones</button><button class="btn danger" data-a="trashIt" data-id="${id}">Papelera</button></div></div>`;
   return h;
 }
 function instPane(s, def) {
@@ -406,12 +407,52 @@ function songLog(s) {
       <span style="white-space:pre-wrap">${note ? esc(note) : '<span class="muted small">Sin notas</span>'}</span></span><span class="chev">›</span></button>`;
   }).join('')}</div>`;
 }
+// Versión buena: el audio limpio y masterizado del tema, subido desde un archivo
+const masterOf = id => recsOf(r => r.data.song_id === id && r.data.master)[0] || null;
+function masterBlock(s) {
+  const m = masterOf(s.id);
+  const pick = (label, cls) => `<label class="btn ${cls}" style="cursor:pointer">${label}<input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg" data-master="${s.id}" hidden></label>`;
+  return `<div class="sec"><div class="label">Versión buena</div>${m
+    ? `<div class="card hl stack" style="padding:6px 8px">${recRow(m)}</div><div class="row">${pick('Cambiar por otra versión', 'sm ghost')}<span class="small muted">Subida por ${esc(whoName(m.created_by))}, ${esc(fmtStamp(m.data.recorded_at))}</span></div>`
+    : `<div class="card stack"><p class="small muted">Cuando tengáis una grabación limpia y masterizada, súbela aquí. Se verá destacada y se podrá escuchar y compartir como cualquier otra.</p>${pick('⤒ Subir versión buena', 'pri')}</div>`}</div>`;
+}
+const audioDuration = blob => new Promise(res => {
+  const a = new Audio(); const u = URL.createObjectURL(blob); let done = false;
+  const fin = v => { if (done) return; done = true; URL.revokeObjectURL(u); res(v); };
+  a.preload = 'metadata'; a.onloadedmetadata = () => fin(isFinite(a.duration) ? a.duration : 0); a.onerror = () => fin(0);
+  setTimeout(() => fin(0), 8000); a.src = u;
+});
+async function uploadMaster(el) {
+  const f = el.files && el.files[0]; el.value = ''; if (!f) return;
+  const song = get(el.dataset.master); if (!song) return;
+  if (f.size > 50 * 1024 * 1024) return sheet(`<h3>Archivo demasiado grande</h3><p class="muted">Pesa ${(f.size / 1048576).toFixed(0)} MB y el máximo es 50 MB. Exporta el máster en MP3 a 320 kbps (unos 10 MB para 4 minutos), que suena igual de bien en el móvil.</p><button class="btn" data-a="close">Entendido</button>`);
+  const ext = ((f.name.match(/\.([a-z0-9]{2,4})$/i) || [])[1] || extOf(f.type || '')).toLowerCase();
+  const mime = f.type || ({ mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac', ogg: 'audio/ogg' }[ext] || 'audio/mpeg');
+  const blob = new Blob([f], { type: mime });
+  const dur = await audioDuration(blob);
+  const old = masterOf(song.id);
+  if (old && !await confirmBox('¿Sustituir la versión buena actual?', 'Sustituir', false, '<p class="small muted">La anterior no se borra: se queda en Grabaciones marcada como «Versión anterior».</p>')) return;
+  const id = uuid(), path = `audio/${id}.${ext}`;
+  await DB.put('blobs', blob, id).catch(() => {}); blobCache.set(id, blob);
+  await createItem('recording', {
+    name: `${song.data.title} · versión buena`, song_id: song.id, rehearsal_id: null, gig_id: null, master: true, ref: true,
+    tags: ['Versión buena'], part: '', note: f.name, markers: [], duration: Math.round(dur * 10) / 10, mime, size: f.size, path, blob: id,
+    recorded_at: new Date().toISOString(), uploaded: !REMOTE, by_member: S.me.member_id
+  }, id);
+  if (REMOTE) await enqueue({ op: 'upload', key: id, path, mime, item: id });
+  if (old) {
+    await setField(old.id, ['master'], false); await setField(old.id, ['ref'], false);
+    await setField(old.id, ['tags'], (old.data.tags || []).filter(t => t !== 'Versión buena').concat(['Versión anterior']));
+  }
+  onChange('local');
+  toast(REMOTE ? (navigator.onLine ? 'Subiendo la versión buena…' : 'Guardada en el móvil. Se subirá al recuperar la conexión.') : 'Versión buena guardada');
+}
 function songRecs(s, v) {
   const recs = recsOf(r => r.data.song_id === s.id);
   const used = [...new Set(recs.flatMap(r => r.data.tags || []))];
   const f = v.tag || '';
   const list = f ? recs.filter(r => (r.data.tags || []).includes(f)) : recs;
-  let h = `<div class="stack"><button class="btn recb block" data-a="recHere">● Grabar en este tema</button>`;
+  let h = `<div class="stack">${masterBlock(s)}<button class="btn recb block" data-a="recHere">● Grabar en este tema</button>`;
   if (used.length) h += `<div class="tabs">${[['', 'Todas'], ...used.map(t => [t, t])].map(([k, l]) => `<button data-a="recFilter" data-v="${esc(k)}" aria-current="${k === f}">${esc(l)}</button>`).join('')}</div>`;
   h += list.length ? `<div class="list">${list.map(r => recRow(r)).join('')}</div>` : `<div class="card empty">Sin grabaciones${f ? ' con esa etiqueta' : ''}.</div>`;
   return h + `</div>`;
@@ -1050,6 +1091,21 @@ ACT.convertAll = async () => {
 };
 
 /* ---------- compartir ---------- */
+const SHARE_ICON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="M8.3 10.8l7.4-4.3M8.3 13.2l7.4 4.3"/></svg>';
+// Compartir solo el archivo de audio (WhatsApp, correo, Telegram…)
+async function shareAudio(id) {
+  const r = get(id); if (!r) return;
+  toast('Preparando audio…');
+  const f = await recFile(r);
+  if (!f) return toast(REMOTE && !navigator.onLine ? 'Sin conexión: este audio aún no está en el móvil' : 'Audio no disponible');
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: [f] })) {
+    try { await navigator.share({ files: [f] }); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; a.click();
+  toast('Este móvil no permite compartir archivos: se ha descargado el audio');
+}
+ACT.shareRec = el => shareAudio(el.dataset.id);
 async function shareOut({ title, text, files }) {
   files = (files || []).filter(Boolean);
   if (navigator.share) {
@@ -1172,11 +1228,7 @@ const PLAY_ACT = {
     updPlay();
   },
   plTag(el) { const r = get(P.id); const arr = (r.data.tags || []).slice(); const i = arr.indexOf(el.dataset.v); if (i >= 0) arr.splice(i, 1); else arr.push(el.dataset.v); setField(r.id, ['tags'], arr); el.setAttribute('aria-pressed', i < 0); },
-  async plShare() {
-    const r = get(P.id); const f = await recFile(r); if (!f) return toast('Audio no disponible');
-    const song = get(r.data.song_id);
-    await shareOut({ title: r.data.name, text: `${song ? song.data.title + ' · ' : ''}${r.data.name} (${fmtStamp(r.data.recorded_at)})`, files: [f] });
-  },
+  plShare() { return shareAudio(P.id); },
   async plDownload() {
     const r = get(P.id); const b = await getBlob(r.data.blob || r.id, r.data.path).catch(() => null); if (!b) return toast('Audio no disponible');
     const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = (r.data.name || 'grabacion').replace(/[\\/:*?"<>|]/g, '-') + '.' + extOf(r.data.mime || ''); a.click();
